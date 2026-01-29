@@ -1,0 +1,14 @@
+# Azure SDK
+azure-identity>=1.15.0
+azure-storage-blob>=12.19.0
+
+# Microsoft Graph
+msgraph-sdk>=1.2.0
+
+# Utilities
+python-dateutil>=2.8.2
+aiohttp>=3.9.0
+python-dotenv>=1.0.0
+
+# Logging
+structlog>=24.1.0
