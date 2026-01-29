@@ -73,6 +73,12 @@ class BlobStorageClient:
     METADATA_SP_LAST_MODIFIED = "sharepoint_last_modified"
     METADATA_SP_CONTENT_HASH = "sharepoint_content_hash"
     
+    # Azure AI Search ACL-compatible metadata keys
+    # These are populated by permissions_sync.py and read by the indexer
+    # See: https://learn.microsoft.com/en-us/azure/search/search-index-access-control-lists-and-rbac-push-api
+    METADATA_ACL_USER_IDS = "acl_user_ids"    # JSON array of user Entra Object IDs
+    METADATA_ACL_GROUP_IDS = "acl_group_ids"  # JSON array of group Entra Object IDs
+    
     def __init__(self, account_url: str, container_name: str, blob_prefix: str = ""):
         """
         Initialize the Blob Storage client.

@@ -1,0 +1,183 @@
+{
+  "@odata.etag": "\"0x8DD3CCB1DE5C490\"",
+  "name": "vector-jt-poc",
+  "fields": [
+    {
+      "name": "chunk_id",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "stored": true,
+      "sortable": true,
+      "facetable": false,
+      "key": true,
+      "analyzer": "keyword",
+      "synonymMaps": []
+    },
+    {
+      "name": "text_parent_id",
+      "type": "Edm.String",
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
+      "name": "chunk",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
+      "name": "title",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
+      "name": "image_parent_id",
+      "type": "Edm.String",
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
+      "name": "text_vector",
+      "type": "Collection(Edm.Single)",
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "dimensions": 3072,
+      "vectorSearchProfile": "vector-jt-poc-azureOpenAi-text-profile",
+      "synonymMaps": []
+    },
+    {
+      "name": "image_vector",
+      "type": "Collection(Edm.Single)",
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "dimensions": 1024,
+      "vectorSearchProfile": "vector-jt-poc-aiServicesVision-image-profile",
+      "synonymMaps": []
+    },
+    {
+      "name": "case_id",
+      "type": "Edm.String",
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    }
+  ],
+  "scoringProfiles": [],
+  "suggesters": [],
+  "analyzers": [],
+  "normalizers": [],
+  "tokenizers": [],
+  "tokenFilters": [],
+  "charFilters": [],
+  "similarity": {
+    "@odata.type": "#Microsoft.Azure.Search.BM25Similarity"
+  },
+  "semantic": {
+    "defaultConfiguration": "vector-jt-poc-semantic-configuration",
+    "configurations": [
+      {
+        "name": "vector-jt-poc-semantic-configuration",
+        "prioritizedFields": {
+          "titleField": {
+            "fieldName": "title"
+          },
+          "prioritizedContentFields": [
+            {
+              "fieldName": "chunk"
+            }
+          ],
+          "prioritizedKeywordsFields": []
+        }
+      }
+    ]
+  },
+  "vectorSearch": {
+    "algorithms": [
+      {
+        "name": "vector-jt-poc-algorithm",
+        "kind": "hnsw",
+        "hnswParameters": {
+          "metric": "cosine",
+          "m": 4,
+          "efConstruction": 400,
+          "efSearch": 500
+        }
+      }
+    ],
+    "profiles": [
+      {
+        "name": "vector-jt-poc-azureOpenAi-text-profile",
+        "algorithm": "vector-jt-poc-algorithm",
+        "vectorizer": "vector-jt-poc-azureOpenAi-text-vectorizer"
+      },
+      {
+        "name": "vector-jt-poc-aiServicesVision-image-profile",
+        "algorithm": "vector-jt-poc-algorithm",
+        "vectorizer": "vector-jt-poc-aiServicesVision-image-vectorizer"
+      }
+    ],
+    "vectorizers": [
+      {
+        "name": "vector-jt-poc-azureOpenAi-text-vectorizer",
+        "kind": "azureOpenAI",
+        "azureOpenAIParameters": {
+          "resourceUri": "https://svc.openai.azure.com",
+          "deploymentId": "text-embedding-3-large",
+          "modelName": "text-embedding-3-large"
+        }
+      },
+      {
+        "name": "vector-jt-poc-aiServicesVision-image-vectorizer",
+        "kind": "aiServicesVision",
+        "aiServicesVisionParameters": {
+          "modelVersion": "2023-04-15",
+          "apiKey": "<redacted>",
+          "resourceUri": "https://svc.cognitiveservices.azure.com"
+        }
+      }
+    ],
+    "compressions": []
+  }
+}

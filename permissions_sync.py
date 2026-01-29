@@ -30,8 +30,15 @@ logger = structlog.get_logger(__name__)
 
 
 # Metadata keys for storing permissions
+# Legacy: Full permissions JSON (for debugging/reference)
 METADATA_PERMISSIONS = "sharepoint_permissions"
 METADATA_PERMISSIONS_SYNCED_AT = "permissions_synced_at"
+
+# Azure AI Search ACL-compatible metadata keys
+# These store comma-separated Entra Object IDs for query-time ACL enforcement
+# See: https://learn.microsoft.com/en-us/azure/search/search-index-access-control-lists-and-rbac-push-api
+METADATA_USER_IDS = "acl_user_ids"      # Comma-separated user object IDs
+METADATA_GROUP_IDS = "acl_group_ids"    # Comma-separated group object IDs
 
 
 @dataclass
@@ -85,13 +92,84 @@ class FilePermissions:
         
         Returns:
             Dictionary of metadata key-value pairs (values must be strings)
+            
+        Note:
+            This method produces ACL-compatible metadata for Azure AI Search:
+            - acl_user_ids: Comma-separated list of Entra user object IDs
+            - acl_group_ids: Comma-separated list of Entra group object IDs
+            
+            Special values supported by Azure AI Search:
+            - "all": Any user can access the document
+            - "none": No user can access (must match other ACL type)
         """
         permissions_json = json.dumps([p.to_dict() for p in self.permissions])
         
-        return {
+        # Extract user and group IDs for Azure AI Search ACL enforcement
+        user_ids = self._extract_user_ids()
+        group_ids = self._extract_group_ids()
+        
+        metadata = {
             METADATA_PERMISSIONS: permissions_json,
-            METADATA_PERMISSIONS_SYNCED_AT: self.synced_at.isoformat() if self.synced_at else datetime.utcnow().isoformat()
+            METADATA_PERMISSIONS_SYNCED_AT: self.synced_at.isoformat() if self.synced_at else datetime.utcnow().isoformat(),
         }
+        
+        # Add ACL fields - use "all" if public, otherwise list specific IDs
+        # Azure AI Search expects JSON arrays as strings for Collection(Edm.String)
+        if user_ids:
+            metadata[METADATA_USER_IDS] = json.dumps(user_ids)
+        else:
+            # No specific users - set to "none" so access requires group membership
+            metadata[METADATA_USER_IDS] = json.dumps(["none"])
+            
+        if group_ids:
+            metadata[METADATA_GROUP_IDS] = json.dumps(group_ids)
+        else:
+            # No specific groups - set to "none" so access requires user ID match
+            metadata[METADATA_GROUP_IDS] = json.dumps(["none"])
+        
+        return metadata
+    
+    def _extract_user_ids(self) -> List[str]:
+        """
+        Extract unique Entra user object IDs from permissions.
+        
+        Returns:
+            List of user object IDs (GUIDs) that have access to this file
+        """
+        user_ids = []
+        for perm in self.permissions:
+            if perm.identity_type == "user" and perm.identity_id:
+                # Only include Entra object IDs (GUIDs), not SharePoint-specific IDs
+                if self._is_valid_guid(perm.identity_id):
+                    user_ids.append(perm.identity_id)
+        return list(set(user_ids))  # Remove duplicates
+    
+    def _extract_group_ids(self) -> List[str]:
+        """
+        Extract unique Entra group object IDs from permissions.
+        
+        Returns:
+            List of group object IDs (GUIDs) that have access to this file
+        """
+        group_ids = []
+        for perm in self.permissions:
+            if perm.identity_type == "group" and perm.identity_id:
+                # Only include Entra object IDs (GUIDs)
+                if self._is_valid_guid(perm.identity_id):
+                    group_ids.append(perm.identity_id)
+        return list(set(group_ids))  # Remove duplicates
+    
+    @staticmethod
+    def _is_valid_guid(value: str) -> bool:
+        """
+        Check if a string looks like a valid GUID/UUID.
+        Entra Object IDs are GUIDs like: 00aa00aa-bb11-cc22-dd33-44ee44ee44ee
+        """
+        if not value:
+            return False
+        import re
+        guid_pattern = r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        return bool(re.match(guid_pattern, value))
     
     @classmethod
     def from_metadata(cls, file_path: str, file_id: str, metadata: Dict[str, str]) -> "FilePermissions":

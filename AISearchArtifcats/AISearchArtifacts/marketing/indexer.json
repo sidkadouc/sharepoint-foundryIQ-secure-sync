@@ -1,0 +1,29 @@
+{
+  "name": "businessbooster-marketing-indexer",
+  "description": "Indexer for marketing files",
+  "dataSourceName": "businessbooster-marketing-datasource",
+  "skillsetName": "businessbooster-marketing-skillset",
+  "targetIndexName": "businessbooster-marketing-index",
+  "disabled": null,
+  "schedule": null,
+  "parameters": {
+    "batchSize": null,
+    "maxFailedItems": -1,
+    "maxFailedItemsPerBatch": -1,
+    "configuration": {
+      "dataToExtract": "contentAndMetadata",
+      "parsingMode": "default",
+      "imageAction": "generateNormalizedImages"
+    }
+  },
+  "fieldMappings": [
+    {
+      "sourceFieldName": "metadata_storage_name",
+      "targetFieldName": "title",
+      "mappingFunction": null
+    }
+  ],
+  "outputFieldMappings": [],
+  "cache": null,
+  "encryptionKey": null
+}

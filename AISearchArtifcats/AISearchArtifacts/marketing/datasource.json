@@ -1,0 +1,13 @@
+{
+  "name": "businessbooster-marketing-datasource",
+  "type": "azureblob",
+  "credentials": {
+    "connectionString": "ResourceId=/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Storage/storageAccounts/${storageAccount};"
+  },
+  "container": {
+    "name": "marketing"
+  },
+  "identity": null,
+  "dataDeletionDetectionPolicy": null,
+  "dataChangeDetectionPolicy": null
+}

@@ -1,0 +1,158 @@
+{
+  "name": "businessbooster-marketing-skillset",
+  "description": "Skillset for marketing files - OCR, text chunking, and embeddings",
+  "cognitiveServices": {
+    "@odata.type": "#Microsoft.Azure.Search.DefaultCognitiveServices"
+  },
+  "skills": [
+    {
+      "@odata.type": "#Microsoft.Skills.Vision.OcrSkill",
+      "name": "ocr-skill",
+      "description": "OCR skill to extract text from images",
+      "context": "/document/normalized_images/*",
+      "lineEnding": "Space",
+      "defaultLanguageCode": "fr",
+      "detectOrientation": true,
+      "inputs": [
+        {
+          "name": "image",
+          "source": "/document/normalized_images/*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "targetName": "text"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Custom.ChatCompletionSkill",
+      "uri": "${openAIResourceUri}/openai/deployments/${chatCompletionDeploymentId}/chat/completions?api-version=2024-08-01-preview",
+      "timeout": "PT1M",
+      "name": "image-verbalization-skill",
+      "description": "GPT-4 skill for image verbalization for marketing content",
+      "context": "/document/normalized_images/*",
+      "inputs": [
+        {
+          "name": "systemMessage",
+          "source": "='Vous êtes un expert en marketing qui analyse les visuels marketing. Votre rôle est de décrire précisément les images marketing pour aider les équipes à comprendre et réutiliser le contenu.\n\nInstructions:\n- Pour les infographies: identifiez les données clés, tendances, et messages principaux.\n- Pour les photos de produits: décrivez le produit, son positionnement, et le contexte visuel.\n- Pour les captures d écran: décrivez l interface, les fonctionnalités mises en avant.\n- Pour les logos et branding: identifiez les éléments visuels, couleurs, et style.\n- Soyez précis sur les textes visibles, slogans, et appels à l action.\n- Incluez tout texte visible dans l image.'"
+        },
+        {
+          "name": "userMessage",
+          "source": "='Décrivez cette image marketing en détail. Identifiez les messages clés, le public cible, et les éléments visuels importants.'"
+        },
+        {
+          "name": "image",
+          "source": "/document/normalized_images/*/data"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "response",
+          "targetName": "verbalizedImage"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.MergeSkill",
+      "name": "merge-skill",
+      "description": "Merge OCR text and image descriptions with document content",
+      "context": "/document",
+      "insertPreTag": " ",
+      "insertPostTag": " ",
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/content"
+        },
+        {
+          "name": "itemsToInsert",
+          "source": "/document/normalized_images/*/verbalizedImage"
+        },
+        {
+          "name": "offsets",
+          "source": "/document/normalized_images/*/contentOffset"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mergedText",
+          "targetName": "mergedText"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.SplitSkill",
+      "name": "split-skill",
+      "description": "Split skill to chunk documents",
+      "context": "/document",
+      "defaultLanguageCode": "fr",
+      "textSplitMode": "pages",
+      "maximumPageLength": 2000,
+      "pageOverlapLength": 200,
+      "unit": "characters",
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/mergedText"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "textItems",
+          "targetName": "pages"
+        }
+      ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill",
+      "name": "text-embedding-skill",
+      "description": "Azure OpenAI Embedding skill for text chunks",
+      "context": "/document/pages/*",
+      "resourceUri": "${openAIResourceUri}",
+      "deploymentId": "${embeddingDeploymentId}",
+      "dimensions": ${embeddingDimensions},
+      "modelName": "${embeddingModelName}",
+      "authIdentity": null,
+      "inputs": [
+        {
+          "name": "text",
+          "source": "/document/pages/*"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "embedding",
+          "targetName": "text_vector"
+        }
+      ]
+    }
+  ],
+  "indexProjections": {
+    "selectors": [
+      {
+        "targetIndexName": "businessbooster-marketing-index",
+        "parentKeyFieldName": "text_parent_id",
+        "sourceContext": "/document/pages/*",
+        "mappings": [
+          {
+            "name": "text_vector",
+            "source": "/document/pages/*/text_vector"
+          },
+          {
+            "name": "chunk",
+            "source": "/document/pages/*"
+          },
+          {
+            "name": "title",
+            "source": "/document/title"
+          }
+        ]
+      }
+    ],
+    "parameters": {
+      "projectionMode": "skipIndexingParentDocuments"
+    }
+  }
+}

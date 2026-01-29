@@ -1,0 +1,55 @@
+{
+  "@odata.context": "https://aisearchjtpoc.search.windows.net/$metadata#indexers/$entity",
+  "@odata.etag": "\"0x8DD3FE8EB9B50BF\"",
+  "name": "${indexerName}",
+  "description": null,
+  "dataSourceName": "${dataSourceName}",
+  "skillsetName": "${skillsetName}",
+  "targetIndexName": "${indexName}",
+  "disabled": null,
+  "schedule": null,
+  "parameters": {
+    "batchSize": null,
+    "maxFailedItems": -1,
+    "maxFailedItemsPerBatch": -1,
+    "configuration": {
+      "dataToExtract": "contentAndMetadata",
+      "parsingMode": "default",
+      "imageAction": "generateNormalizedImages"
+    }
+  },
+  "fieldMappings": [
+    {
+      "sourceFieldName": "metadata_storage_name",
+      "targetFieldName": "title",
+      "mappingFunction": null
+    },
+    {
+      "sourceFieldName": "caseId",
+      "targetFieldName": "case_id",
+      "mappingFunction": null
+    },
+    {
+      "sourceFieldName": "originalFileName",
+      "targetFieldName": "original_file_name",
+      "mappingFunction": null
+    },
+    {
+      "sourceFieldName": "acl_user_ids",
+      "targetFieldName": "UserIds",
+      "mappingFunction": {
+        "name": "jsonArrayToStringCollection"
+      }
+    },
+    {
+      "sourceFieldName": "acl_group_ids",
+      "targetFieldName": "GroupIds",
+      "mappingFunction": {
+        "name": "jsonArrayToStringCollection"
+      }
+    }
+  ],
+  "outputFieldMappings": [],
+  "cache": null,
+  "encryptionKey": null
+}
