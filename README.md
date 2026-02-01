@@ -42,10 +42,9 @@ This solution synchronizes files from SharePoint Online to Azure Blob Storage an
 
 | Directory | Description |
 |-----------|-------------|
-| `sync/` | SharePoint to Blob sync job (Python) |
+| `sync/` | SharePoint to Blob sync job (Python) including deployment scripts |
 | `ai-search/` | Azure AI Search deployment artifacts (index, indexer, skillset) |
 | `tests/` | Search testing scripts |
-| `deploy/` | Azure Function deployment scripts |
 
 ## Quick Start
 
@@ -261,7 +260,7 @@ docker run --env-file .env sharepoint-sync:latest
 Deploy as an Azure Function with daily timer trigger:
 
 ```bash
-cd deploy
+cd sync/deploy
 export SUBSCRIPTION_ID="your-subscription-id"
 export SHAREPOINT_SITE_URL="https://contoso.sharepoint.com/sites/MySite"
 export AZURE_STORAGE_ACCOUNT_NAME="yourstorageaccount"
@@ -269,7 +268,7 @@ export AZURE_BLOB_CONTAINER_NAME="sharepoint-sync"
 ./deploy-function.sh
 ```
 
-See [deploy/README.md](deploy/README.md) for detailed configuration options.
+See [sync/deploy/README.md](sync/deploy/README.md) for detailed configuration options.
 
 ### Azure Container Apps Job
 
@@ -314,7 +313,10 @@ az containerapp job create \
 │   ├── permissions_sync.py     # Permission sync logic
 │   ├── requirements.txt        # Python dependencies
 │   ├── Dockerfile              # Container build file
-│   └── .env.example            # Environment template
+│   ├── .env.example            # Environment template
+│   └── deploy/                 # Azure Function deployment
+│       ├── deploy-function.sh  # Function App deployment script
+│       └── README.md           # Deployment documentation
 ├── ai-search/                  # Azure AI Search indexing
 │   ├── script.ps1              # Deployment script
 │   ├── datasource.json         # Blob data source definition
@@ -325,9 +327,6 @@ az containerapp job create \
 ├── tests/                      # Testing
 │   ├── test_search.py          # AI Search testing script
 │   └── .env.example            # Environment template
-├── deploy/                     # Azure Function deployment
-│   ├── deploy-function.sh      # Function App deployment script
-│   └── README.md               # Deployment documentation
 └── README.md                   # This file
 ```
 
