@@ -33,20 +33,6 @@
       "sourceFieldName": "originalFileName",
       "targetFieldName": "original_file_name",
       "mappingFunction": null
-    },
-    {
-      "sourceFieldName": "acl_user_ids",
-      "targetFieldName": "UserIds",
-      "mappingFunction": {
-        "name": "jsonArrayToStringCollection"
-      }
-    },
-    {
-      "sourceFieldName": "acl_group_ids",
-      "targetFieldName": "GroupIds",
-      "mappingFunction": {
-        "name": "jsonArrayToStringCollection"
-      }
     }
   ],
   "outputFieldMappings": [],

@@ -1,0 +1,17 @@
+{
+  "name": "${dataSourceName}",
+  "type": "azureblob",
+  "credentials": {
+    "connectionString": "ResourceId=/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}/providers/Microsoft.Storage/storageAccounts/${storageAccount};"
+  },
+  "container": {
+    "name": "${containerName}"
+  },
+  "identity": null,
+  "dataDeletionDetectionPolicy": {
+    "@odata.type": "#Microsoft.Azure.Search.SoftDeleteColumnDeletionDetectionPolicy",
+    "softDeleteColumnName": "IsDeleted",
+    "softDeleteMarkerValue": "true"
+  },
+  "dataChangeDetectionPolicy": null
+}

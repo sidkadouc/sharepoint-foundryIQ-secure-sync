@@ -1,7 +1,6 @@
 {
   "@odata.etag": "\"0x8DD3CCB1DE5C490\"",
   "name": "${indexName}",
-  "permissionFilterOption": "enabled",
   "fields": [
     {
       "name": "chunk_id",
@@ -17,7 +16,7 @@
       "synonymMaps": []
     },
     {
-      "name": "UserIds",
+      "name": "acl_user_ids",
       "type": "Collection(Edm.String)",
       "searchable": false,
       "filterable": true,
@@ -26,11 +25,10 @@
       "sortable": false,
       "facetable": false,
       "key": false,
-      "permissionFilter": "userIds",
       "synonymMaps": []
     },
     {
-      "name": "GroupIds",
+      "name": "acl_group_ids",
       "type": "Collection(Edm.String)",
       "searchable": false,
       "filterable": true,
@@ -39,7 +37,6 @@
       "sortable": false,
       "facetable": false,
       "key": false,
-      "permissionFilter": "groupIds",
       "synonymMaps": []
     },
     {
@@ -79,18 +76,6 @@
       "synonymMaps": []
     },
     {
-      "name": "image_parent_id",
-      "type": "Edm.String",
-      "searchable": false,
-      "filterable": true,
-      "retrievable": true,
-      "stored": true,
-      "sortable": false,
-      "facetable": false,
-      "key": false,
-      "synonymMaps": []
-    },
-    {
       "name": "text_vector",
       "type": "Collection(Edm.Single)",
       "searchable": true,
@@ -102,20 +87,6 @@
       "key": false,
       "dimensions": ${embeddingDimensions},
       "vectorSearchProfile": "${indexName}-azureOpenAi-text-profile",
-      "synonymMaps": []
-    },
-    {
-      "name": "image_vector",
-      "type": "Collection(Edm.Single)",
-      "searchable": true,
-      "filterable": false,
-      "retrievable": true,
-      "stored": true,
-      "sortable": false,
-      "facetable": false,
-      "key": false,
-      "dimensions": 1024,
-      "vectorSearchProfile": "${indexName}-aiServicesVision-image-profile",
       "synonymMaps": []
     },
     {
@@ -134,30 +105,6 @@
       "name": "original_file_name",
       "type": "Edm.String",
       "searchable": true,
-      "filterable": false,
-      "retrievable": true,
-      "stored": true,
-      "sortable": false,
-      "facetable": false,
-      "key": false,
-      "synonymMaps": []
-    },
-    {
-      "name": "location_metadata",
-      "type": "Edm.String",
-      "searchable": false,
-      "filterable": false,
-      "retrievable": true,
-      "stored": true,
-      "sortable": false,
-      "facetable": false,
-      "key": false,
-      "synonymMaps": []
-    },
-    {
-      "name": "image_path",
-      "type": "Edm.String",
-      "searchable": false,
       "filterable": false,
       "retrievable": true,
       "stored": true,
@@ -214,11 +161,6 @@
         "name": "${indexName}-azureOpenAi-text-profile",
         "algorithm": "${indexName}-algorithm",
         "vectorizer": "${indexName}-azureOpenAi-text-vectorizer"
-      },
-      {
-        "name": "${indexName}-aiServicesVision-image-profile",
-        "algorithm": "${indexName}-algorithm",
-        "vectorizer": "${indexName}-aiServicesVision-image-vectorizer"
       }
     ],
     "vectorizers": [
@@ -229,15 +171,6 @@
           "resourceUri": "${openAIResourceUri}",
           "deploymentId": "${embeddingDeploymentId}",
           "modelName": "${embeddingModelName}",
-          "authIdentity": null
-        }
-      },
-      {
-        "name": "${indexName}-aiServicesVision-image-vectorizer",
-        "kind": "aiServicesVision",
-        "aiServicesVisionParameters": {
-          "modelVersion": "2023-04-15",
-          "resourceUri": "${cognitiveServicesResourceUri}",
           "authIdentity": null
         }
       }
