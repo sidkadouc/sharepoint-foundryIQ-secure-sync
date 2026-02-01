@@ -28,21 +28,21 @@ from msgraph import GraphServiceClient
 
 logger = structlog.get_logger(__name__)
 
-
 # Metadata keys for storing permissions
 # Legacy: Full permissions JSON (for debugging/reference)
 METADATA_PERMISSIONS = "sharepoint_permissions"
 METADATA_PERMISSIONS_SYNCED_AT = "permissions_synced_at"
 
-# Azure AI Search ACL-compatible metadata keys
-# These store comma-separated Entra Object IDs for query-time ACL enforcement
-# See: https://learn.microsoft.com/en-us/azure/search/search-index-access-control-lists-and-rbac-push-api
-METADATA_USER_IDS = "acl_user_ids"      # Comma-separated user object IDs
-METADATA_GROUP_IDS = "acl_group_ids"    # Comma-separated group object IDs
-
-# Duplicate ACL fields for downstream compatibility
-METADATA_ACL_USER_IDS = "metadata_acl_user_ids"
-METADATA_ACL_GROUP_IDS = "metdata_acl_group_ids"
+# Azure AI Search ACL-compatible metadata keys for POSIX-like permissions preview feature
+# When stored in blob metadata, the indexer sees them prefixed with "metadata_"
+# e.g., "user_ids" in blob becomes "metadata_user_ids" in indexer
+# 
+# IMPORTANT: For the permissionFilter preview feature, fields MUST use these specific names:
+# - "user_ids" → becomes "metadata_user_ids" → maps to index field with permissionFilter: "userIds"
+# - "group_ids" → becomes "metadata_group_ids" → maps to index field with permissionFilter: "groupIds"
+# See: https://learn.microsoft.com/en-us/azure/search/search-security-document-level-access-control
+METADATA_ACL_USER_IDS = "user_ids"     # JSON array of user object IDs (Entra IDs)
+METADATA_ACL_GROUP_IDS = "group_ids"   # JSON array of group object IDs (Entra IDs)
 
 
 @dataclass
@@ -117,23 +117,26 @@ class FilePermissions:
             METADATA_PERMISSIONS_SYNCED_AT: self.synced_at.isoformat() if self.synced_at else datetime.utcnow().isoformat(),
         }
         
-        # Add ACL fields - use "all" if public, otherwise list specific IDs
-        # Azure AI Search expects JSON arrays as strings for Collection(Edm.String)
+        # Add ACL fields - store as pipe-delimited strings for Azure AI Search skillset compatibility
+        # The indexer will read these as "metadata_user_ids" and "metadata_group_ids"
+        # A SplitSkill in the skillset will convert them to Collection(Edm.String)
+        #
+        # We use pipe (|) as delimiter since GUIDs don't contain pipes
+        # When there are no specific users/groups, we use a placeholder GUID that won't match any real ID
+        PLACEHOLDER_NO_USERS = "00000000-0000-0000-0000-000000000000"
+        PLACEHOLDER_NO_GROUPS = "00000000-0000-0000-0000-000000000001"
+        
         if user_ids:
-            metadata[METADATA_USER_IDS] = json.dumps(user_ids)
-            metadata[METADATA_ACL_USER_IDS] = json.dumps(user_ids)
+            metadata[METADATA_ACL_USER_IDS] = "|".join(user_ids)
         else:
-            # No specific users - set to "none" so access requires group membership
-            metadata[METADATA_USER_IDS] = json.dumps(["none"])
-            metadata[METADATA_ACL_USER_IDS] = json.dumps(["none"])
+            # No specific users - use placeholder (access controlled by groups)
+            metadata[METADATA_ACL_USER_IDS] = PLACEHOLDER_NO_USERS
             
         if group_ids:
-            metadata[METADATA_GROUP_IDS] = json.dumps(group_ids)
-            metadata[METADATA_ACL_GROUP_IDS] = json.dumps(group_ids)
+            metadata[METADATA_ACL_GROUP_IDS] = "|".join(group_ids)
         else:
-            # No specific groups - set to "none" so access requires user ID match
-            metadata[METADATA_GROUP_IDS] = json.dumps(["none"])
-            metadata[METADATA_ACL_GROUP_IDS] = json.dumps(["none"])
+            # No specific groups - use placeholder (access controlled by users)
+            metadata[METADATA_ACL_GROUP_IDS] = PLACEHOLDER_NO_GROUPS
         
         return metadata
     

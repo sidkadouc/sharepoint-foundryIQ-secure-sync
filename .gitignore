@@ -36,3 +36,6 @@ ENV/
 
 # Logs
 *.log
+
+# Generated files
+deploy/function-app/
