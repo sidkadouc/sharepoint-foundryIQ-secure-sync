@@ -40,6 +40,10 @@ METADATA_PERMISSIONS_SYNCED_AT = "permissions_synced_at"
 METADATA_USER_IDS = "acl_user_ids"      # Comma-separated user object IDs
 METADATA_GROUP_IDS = "acl_group_ids"    # Comma-separated group object IDs
 
+# Duplicate ACL fields for downstream compatibility
+METADATA_ACL_USER_IDS = "metadata_acl_user_ids"
+METADATA_ACL_GROUP_IDS = "metdata_acl_group_ids"
+
 
 @dataclass
 class SharePointPermission:
@@ -117,15 +121,19 @@ class FilePermissions:
         # Azure AI Search expects JSON arrays as strings for Collection(Edm.String)
         if user_ids:
             metadata[METADATA_USER_IDS] = json.dumps(user_ids)
+            metadata[METADATA_ACL_USER_IDS] = json.dumps(user_ids)
         else:
             # No specific users - set to "none" so access requires group membership
             metadata[METADATA_USER_IDS] = json.dumps(["none"])
+            metadata[METADATA_ACL_USER_IDS] = json.dumps(["none"])
             
         if group_ids:
             metadata[METADATA_GROUP_IDS] = json.dumps(group_ids)
+            metadata[METADATA_ACL_GROUP_IDS] = json.dumps(group_ids)
         else:
             # No specific groups - set to "none" so access requires user ID match
             metadata[METADATA_GROUP_IDS] = json.dumps(["none"])
+            metadata[METADATA_ACL_GROUP_IDS] = json.dumps(["none"])
         
         return metadata
     
