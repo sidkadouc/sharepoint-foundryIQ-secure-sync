@@ -40,15 +40,12 @@ This solution synchronizes files from SharePoint Online to Azure Blob Storage an
 
 ## Solution Components
 
-| Component | Description |
+| Directory | Description |
 |-----------|-------------|
-| `main.py` | Main sync job entry point |
-| `sharepoint_client.py` | Microsoft Graph API client for SharePoint |
-| `blob_client.py` | Azure Blob Storage client |
-| `permissions_sync.py` | SharePoint permissions to blob metadata sync |
-| `config.py` | Environment-based configuration |
-| `AISearchArtifcats/` | AI Search deployment artifacts (index, indexer, skillset) |
-| `deploy/` | Azure deployment scripts |
+| `sync/` | SharePoint to Blob sync job (Python) |
+| `ai-search/` | Azure AI Search deployment artifacts (index, indexer, skillset) |
+| `tests/` | Search testing scripts |
+| `deploy/` | Azure Function deployment scripts |
 
 ## Quick Start
 
@@ -66,20 +63,23 @@ This solution synchronizes files from SharePoint Online to Azure Blob Storage an
 
 ```bash
 # Copy and edit the environment file
-cp .env.example .env
+cp sync/.env.example sync/.env
 
-# Edit .env with your values
+# Edit sync/.env with your values
 ```
 
 ### 3. Install Dependencies
 
 ```bash
+cd sync
 pip install -r requirements.txt
 ```
 
 ### 4. Run the Sync
 
 ```bash
+cd sync
+
 # Preview changes (dry run)
 DRY_RUN=true python main.py
 
@@ -172,7 +172,7 @@ The Search service managed identity needs:
 ### Deploy AI Search Components
 
 ```powershell
-cd AISearchArtifcats/AISearchArtifacts
+cd ai-search
 
 ./script.ps1 `
   -ResourceGroupName "your-rg" `
@@ -306,23 +306,29 @@ az containerapp job create \
 ## Project Structure
 
 ```
-├── main.py                 # Sync job entry point
-├── config.py               # Configuration management
-├── sharepoint_client.py    # SharePoint/Graph API client
-├── blob_client.py          # Azure Blob Storage client
-├── permissions_sync.py     # Permission sync logic
-├── requirements.txt        # Python dependencies
-├── Dockerfile              # Container build file
-├── .env.example            # Environment template
-├── AISearchArtifcats/
-│   └── AISearchArtifacts/
-│       ├── script.ps1      # Deployment script
-│       ├── datasource.json # Blob data source definition
-│       ├── index.json      # Search index schema
-│       ├── indexer.json    # Indexer with field mappings
-│       └── skillset.json   # AI enrichment pipeline
-└── deploy/
-    └── deploy-function.sh  # Azure Function deployment
+├── sync/                       # SharePoint to Blob sync
+│   ├── main.py                 # Sync job entry point
+│   ├── config.py               # Configuration management
+│   ├── sharepoint_client.py    # SharePoint/Graph API client
+│   ├── blob_client.py          # Azure Blob Storage client
+│   ├── permissions_sync.py     # Permission sync logic
+│   ├── requirements.txt        # Python dependencies
+│   ├── Dockerfile              # Container build file
+│   └── .env.example            # Environment template
+├── ai-search/                  # Azure AI Search indexing
+│   ├── script.ps1              # Deployment script
+│   ├── datasource.json         # Blob data source definition
+│   ├── index.json              # Search index schema
+│   ├── indexer.json            # Indexer with field mappings
+│   ├── skillset.json           # AI enrichment pipeline
+│   └── .env.example            # Environment template
+├── tests/                      # Testing
+│   ├── test_search.py          # AI Search testing script
+│   └── .env.example            # Environment template
+├── deploy/                     # Azure Function deployment
+│   ├── deploy-function.sh      # Function App deployment script
+│   └── README.md               # Deployment documentation
+└── README.md                   # This file
 ```
 
 ## License
