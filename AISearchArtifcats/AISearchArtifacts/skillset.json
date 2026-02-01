@@ -97,32 +97,6 @@
           "targetName": "text_vector"
         }
       ]
-    },
-    {
-      "@odata.type": "#Microsoft.Skills.Util.ShaperSkill",
-      "name": "acl-shaper-skill",
-      "description": "Extract ACL metadata for propagation to chunks",
-      "context": "/document",
-      "inputs": [
-        {
-          "name": "acl_user_ids_raw",
-          "source": "/document/acl_user_ids",
-          "sourceContext": null,
-          "inputs": []
-        },
-        {
-          "name": "acl_group_ids_raw",
-          "source": "/document/acl_group_ids",
-          "sourceContext": null,
-          "inputs": []
-        }
-      ],
-      "outputs": [
-        {
-          "name": "output",
-          "targetName": "acl_data"
-        }
-      ]
     }
   ],
   "indexProjections": {
@@ -149,12 +123,12 @@
             "source": "/document/metadata_storage_name"
           },
           {
-            "name": "acl_user_ids_str",
-            "source": "/document/acl_data/acl_user_ids_raw"
+            "name": "acl_user_ids",
+            "source": "/document/user_ids"
           },
           {
-            "name": "acl_group_ids_str",
-            "source": "/document/acl_data/acl_group_ids_raw"
+            "name": "acl_group_ids",
+            "source": "/document/group_ids"
           }
         ]
       }

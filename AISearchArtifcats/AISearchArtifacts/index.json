@@ -1,6 +1,7 @@
 {
   "@odata.etag": "\"0x8DD3CCB1DE5C490\"",
   "name": "${indexName}",
+
   "fields": [
     {
       "name": "chunk_id",
@@ -17,8 +18,8 @@
     },
     {
       "name": "acl_user_ids",
-      "type": "Collection(Edm.String)",
-      "searchable": false,
+      "type": "Edm.String",
+      "searchable": true,
       "filterable": true,
       "retrievable": true,
       "stored": true,
@@ -29,32 +30,8 @@
     },
     {
       "name": "acl_group_ids",
-      "type": "Collection(Edm.String)",
-      "searchable": false,
-      "filterable": true,
-      "retrievable": true,
-      "stored": true,
-      "sortable": false,
-      "facetable": false,
-      "key": false,
-      "synonymMaps": []
-    },
-    {
-      "name": "acl_user_ids_str",
       "type": "Edm.String",
-      "searchable": false,
-      "filterable": true,
-      "retrievable": true,
-      "stored": true,
-      "sortable": false,
-      "facetable": false,
-      "key": false,
-      "synonymMaps": []
-    },
-    {
-      "name": "acl_group_ids_str",
-      "type": "Edm.String",
-      "searchable": false,
+      "searchable": true,
       "filterable": true,
       "retrievable": true,
       "stored": true,
