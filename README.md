@@ -54,36 +54,40 @@ This solution synchronizes files from SharePoint Online to Azure Blob Storage an
 - Azure CLI (`az login`)
 - Azure resources:
   - SharePoint Online site
-  - Azure Storage Account
-  - Azure AI Search service (for search integration)
-  - Azure OpenAI service (for embeddings)
+  - Azure Storage Account (HNS-enabled)
+  - Azure AI Search service (Basic tier+)
+  - Azure OpenAI service (with embedding model)
 
 ### 2. Configure Environment
 
 ```bash
 # Copy and edit the environment file
-cp sync/.env.example sync/.env
+cp .env.example .env
 
-# Edit sync/.env with your values
+# Edit .env with your values (all config in one file)
 ```
 
-### 3. Install Dependencies
+### 3. Run Everything
 
 ```bash
-cd sync
-pip install -r requirements.txt
+# Run the complete pipeline: sync + AI Search + tests
+./run-all.sh
 ```
 
-### 4. Run the Sync
+This will:
+1. Sync files from SharePoint to Blob Storage (with permissions)
+2. Create AI Search components (datasource, index, skillset, indexer)
+3. Wait for indexing to complete
+4. Run search tests to verify
+
+### 4. Run Individual Components
 
 ```bash
-cd sync
+# Sync only
+cd sync && python main.py
 
-# Preview changes (dry run)
-DRY_RUN=true python main.py
-
-# Execute sync
-python main.py
+# Tests only
+cd tests && python test_search.py -q "your query"
 ```
 
 ## Configuration
