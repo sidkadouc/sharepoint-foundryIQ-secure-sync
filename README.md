@@ -69,9 +69,14 @@ cp .env.example .env
 
 ### 3. Run Everything
 
+**Linux/macOS:**
 ```bash
-# Run the complete pipeline: sync + AI Search + tests
 ./run-all.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+.\run-all.ps1
 ```
 
 This will:
