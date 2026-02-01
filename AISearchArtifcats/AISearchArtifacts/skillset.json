@@ -1,10 +1,7 @@
 {
   "name": "${skillsetName}",
   "description": "Skillset with OCR, text chunking, and Azure OpenAI embeddings via Foundry",
-  "cognitiveServices": {
-    "@odata.type": "#Microsoft.Azure.Search.AIServicesByIdentity",
-    "subdomainUrl": "${cognitiveServicesResourceUri}"
-  },
+  "cognitiveServices": null,
   "skills": [
     {
       "@odata.type": "#Microsoft.Skills.Vision.OcrSkill",
@@ -60,7 +57,7 @@
       "name": "split-skill",
       "description": "Split skill to chunk documents",
       "context": "/document",
-      "defaultLanguageCode": "fr",
+      "defaultLanguageCode": "en",
       "textSplitMode": "pages",
       "maximumPageLength": 2000,
       "pageOverlapLength": 200,
@@ -100,6 +97,32 @@
           "targetName": "text_vector"
         }
       ]
+    },
+    {
+      "@odata.type": "#Microsoft.Skills.Util.ShaperSkill",
+      "name": "acl-shaper-skill",
+      "description": "Extract ACL metadata for propagation to chunks",
+      "context": "/document",
+      "inputs": [
+        {
+          "name": "acl_user_ids_raw",
+          "source": "/document/acl_user_ids",
+          "sourceContext": null,
+          "inputs": []
+        },
+        {
+          "name": "acl_group_ids_raw",
+          "source": "/document/acl_group_ids",
+          "sourceContext": null,
+          "inputs": []
+        }
+      ],
+      "outputs": [
+        {
+          "name": "output",
+          "targetName": "acl_data"
+        }
+      ]
     }
   ],
   "indexProjections": {
@@ -126,12 +149,12 @@
             "source": "/document/metadata_storage_name"
           },
           {
-            "name": "acl_user_ids",
-            "source": "/document/acl_user_ids"
+            "name": "acl_user_ids_str",
+            "source": "/document/acl_data/acl_user_ids_raw"
           },
           {
-            "name": "acl_group_ids",
-            "source": "/document/acl_group_ids"
+            "name": "acl_group_ids_str",
+            "source": "/document/acl_data/acl_group_ids_raw"
           }
         ]
       }

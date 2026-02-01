@@ -40,6 +40,30 @@
       "synonymMaps": []
     },
     {
+      "name": "acl_user_ids_str",
+      "type": "Edm.String",
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
+      "name": "acl_group_ids_str",
+      "type": "Edm.String",
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
       "name": "text_parent_id",
       "type": "Edm.String",
       "searchable": false,

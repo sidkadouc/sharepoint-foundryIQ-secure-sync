@@ -35,14 +35,14 @@
       "mappingFunction": null
     },
     {
-      "sourceFieldName": "metadata_acl_user_ids",
+      "sourceFieldName": "acl_user_ids",
       "targetFieldName": "acl_user_ids",
       "mappingFunction": {
         "name": "jsonArrayToStringCollection"
       }
     },
     {
-      "sourceFieldName": "metadata_acl_group_ids",
+      "sourceFieldName": "acl_group_ids",
       "targetFieldName": "acl_group_ids",
       "mappingFunction": {
         "name": "jsonArrayToStringCollection"
@@ -50,6 +50,5 @@
     }
   ],
   "outputFieldMappings": [],
-  "cache": null,
   "encryptionKey": null
 }
