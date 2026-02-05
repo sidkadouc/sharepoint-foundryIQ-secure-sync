@@ -79,6 +79,9 @@ class BlobStorageClient:
     METADATA_ACL_USER_IDS = "acl_user_ids"    # JSON array of user Entra Object IDs
     METADATA_ACL_GROUP_IDS = "acl_group_ids"  # JSON array of group Entra Object IDs
     
+    # Permissions hash for delta detection - set by permissions_sync.py
+    METADATA_PERMISSIONS_HASH = "permissions_hash"
+    
     def __init__(self, account_url: str, container_name: str, blob_prefix: str = ""):
         """
         Initialize the Blob Storage client.

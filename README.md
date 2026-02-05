@@ -166,6 +166,8 @@ az role assignment create \
 
 The job is configured via environment variables:
 
+### Core Settings
+
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
 | `SHAREPOINT_SITE_URL` | Yes | The SharePoint site URL | `https://contoso.sharepoint.com/sites/MySite` |
@@ -176,6 +178,38 @@ The job is configured via environment variables:
 | `AZURE_BLOB_PREFIX` | No | Prefix for all blobs | `docs/` |
 | `DELETE_ORPHANED_BLOBS` | No | Delete blobs removed from SharePoint (default: `false`) | `true` |
 | `DRY_RUN` | No | Preview mode without changes (default: `false`) | `true` |
+| `SYNC_PERMISSIONS` | No | Enable permissions synchronization (default: `false`) | `true` |
+
+### Delta Sync Settings
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `PERMISSIONS_DELTA_MODE` | No | Mode for file and permission change detection (default: `hash`) | `hash`, `graph_delta` |
+| `DELTA_TOKEN_STORAGE_PATH` | No | Path to store delta tokens for `graph_delta` mode (default: `.delta_tokens`) | `/data/tokens` |
+
+#### Delta Modes
+
+The `PERMISSIONS_DELTA_MODE` setting controls how both **file changes** and **permission changes** are detected:
+
+**`hash` (Default)**: 
+- **File Sync**: Full scan of SharePoint - lists all files and compares with blob metadata (last_modified, content_hash)
+- **Permissions**: Computes SHA256 hash of permissions, only syncs if hash differs
+- Works independently, no external state needed
+- Best for: Most scenarios, simpler setup, smaller document libraries
+
+**`graph_delta`**: 
+- **File Sync**: Uses Microsoft Graph delta API to track changes since last sync
+  - First run: Enumerates all files (initial baseline)
+  - Subsequent runs: Only processes files that have been added, modified, or deleted
+  - Handles deletions automatically via delta response
+- **Permissions**: Uses Graph delta API with `Prefer: deltashowsharingchanges` header
+  - Only syncs files with `@microsoft.graph.sharedChanged` annotation
+- Stores delta tokens locally to track sync state between runs
+- More efficient for large document libraries (only queries changed items)
+- Requires `Sites.FullControl.All` permission for proper operation
+- Best for: Large document libraries with frequent changes
+
+> **Note**: The blob metadata format remains the same regardless of delta mode, ensuring no breaking changes when switching modes.
 
 > **Note**: The job automatically resolves the SharePoint Site ID and Drive ID from the URL at runtime. You don't need to look up GUIDs manually.
 

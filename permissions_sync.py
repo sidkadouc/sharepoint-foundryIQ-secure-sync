@@ -16,6 +16,7 @@ This implementation uses the Blob Metadata approach as it:
 - Preserves the full SharePoint permission model
 """
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ logger = structlog.get_logger(__name__)
 # Legacy: Full permissions JSON (for debugging/reference)
 METADATA_PERMISSIONS = "sharepoint_permissions"
 METADATA_PERMISSIONS_SYNCED_AT = "permissions_synced_at"
+METADATA_PERMISSIONS_HASH = "permissions_hash"  # Hash of permissions for delta detection
 
 # Azure AI Search ACL-compatible metadata keys
 # These store comma-separated Entra Object IDs for query-time ACL enforcement
@@ -111,6 +113,7 @@ class FilePermissions:
         metadata = {
             METADATA_PERMISSIONS: permissions_json,
             METADATA_PERMISSIONS_SYNCED_AT: self.synced_at.isoformat() if self.synced_at else datetime.utcnow().isoformat(),
+            METADATA_PERMISSIONS_HASH: self.compute_permissions_hash(),
         }
         
         # Add ACL fields - use "all" if public, otherwise list specific IDs
@@ -128,6 +131,39 @@ class FilePermissions:
             metadata[METADATA_GROUP_IDS] = json.dumps(["none"])
         
         return metadata
+    
+    def compute_permissions_hash(self) -> str:
+        """
+        Compute a stable hash of the permissions for delta detection.
+        
+        The hash is computed from a sorted, normalized representation of 
+        permissions to ensure consistency regardless of the order permissions
+        are returned from the API.
+        
+        Returns:
+            SHA256 hash string of the permissions
+        """
+        if not self.permissions:
+            return hashlib.sha256(b"no_permissions").hexdigest()[:16]
+        
+        # Create a normalized, sorted representation for consistent hashing
+        # Include only fields that matter for access control
+        normalized = []
+        for perm in self.permissions:
+            # Create a tuple of the permission-relevant fields (sorted by identity_id for consistency)
+            perm_tuple = (
+                perm.identity_id or "",
+                perm.identity_type,
+                tuple(sorted(perm.roles)),  # Sort roles for consistency
+            )
+            normalized.append(perm_tuple)
+        
+        # Sort by identity_id to ensure order doesn't affect hash
+        normalized.sort(key=lambda x: (x[0], x[1]))
+        
+        # Convert to string and hash
+        perm_string = json.dumps(normalized, sort_keys=True)
+        return hashlib.sha256(perm_string.encode('utf-8')).hexdigest()[:16]
     
     def _extract_user_ids(self) -> List[str]:
         """
@@ -427,3 +463,255 @@ def permissions_to_summary(permissions: List[SharePointPermission]) -> str:
             summary_parts.append(f"{perm.display_name}:{roles_str}")
     
     return "; ".join(summary_parts)
+
+
+def should_sync_permissions(
+    file_permissions: "FilePermissions", 
+    existing_metadata: Optional[Dict[str, str]]
+) -> bool:
+    """
+    Determine if permissions should be synced based on hash comparison.
+    
+    This enables delta detection for permission changes by comparing the 
+    computed permissions hash with the stored hash in blob metadata.
+    
+    Args:
+        file_permissions: The current permissions from SharePoint
+        existing_metadata: The existing blob metadata (may be None)
+        
+    Returns:
+        True if permissions have changed and should be synced
+    """
+    if not existing_metadata:
+        # No existing metadata, always sync
+        return True
+    
+    stored_hash = existing_metadata.get(METADATA_PERMISSIONS_HASH)
+    if not stored_hash:
+        # No stored hash, need to sync to establish baseline
+        return True
+    
+    # Compute current permissions hash
+    current_hash = file_permissions.compute_permissions_hash()
+    
+    # Only sync if hash has changed
+    return stored_hash != current_hash
+
+
+# =============================================================================
+# Graph Delta API Implementation for Permission Change Detection
+# =============================================================================
+
+# Import shared delta token classes from sharepoint_client
+from sharepoint_client import DeltaToken, DeltaTokenStorage
+
+
+@dataclass
+class PermissionChangedItem:
+    """Represents an item whose permissions have changed (from Graph delta API)."""
+    item_id: str
+    name: str
+    path: str
+    sharing_changed: bool  # True if @microsoft.graph.sharedChanged annotation is present
+
+
+class GraphDeltaPermissionsClient:
+    """
+    Client that uses Microsoft Graph delta API to detect permission changes.
+    
+    This approach uses the following Graph API features:
+    - Delta query: GET /drives/{drive-id}/root/delta
+    - Prefer: deltashowsharingchanges header to identify items with permission changes
+    - Prefer: hierarchicalsharing for efficient permission hierarchy tracking
+    
+    See: https://learn.microsoft.com/en-us/graph/api/driveitem-delta
+    """
+    
+    GRAPH_SCOPES = ["https://graph.microsoft.com/.default"]
+    
+    # Required headers for permission change detection
+    # See: https://learn.microsoft.com/en-us/graph/api/driveitem-delta#scanning-permissions-hierarchies
+    DELTA_HEADERS = {
+        "Prefer": "deltashowremovedasdeleted, deltatraversepermissiongaps, deltashowsharingchanges, hierarchicalsharing"
+    }
+    
+    def __init__(self, drive_id: str, token_storage: DeltaTokenStorage):
+        """
+        Initialize the Graph delta permissions client.
+        
+        Args:
+            drive_id: The SharePoint drive ID
+            token_storage: Storage for delta tokens
+        """
+        self.drive_id = drive_id
+        self.token_storage = token_storage
+        self._credential = None
+        self._client: Optional[GraphServiceClient] = None
+    
+    async def __aenter__(self) -> "GraphDeltaPermissionsClient":
+        """Async context manager entry."""
+        self._credential = _get_sharepoint_credential()
+        self._client = GraphServiceClient(
+            credentials=self._credential,
+            scopes=self.GRAPH_SCOPES
+        )
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit."""
+        if self._credential:
+            await self._credential.close()
+    
+    async def get_items_with_permission_changes(self) -> AsyncIterator[PermissionChangedItem]:
+        """
+        Query Graph API delta to find items with permission changes.
+        
+        Uses the delta API with special headers to detect permission changes:
+        - First call (no token): Returns all items, establishes baseline
+        - Subsequent calls (with token): Returns only changed items
+        - Items with permission changes have @microsoft.graph.sharedChanged annotation
+        
+        Yields:
+            PermissionChangedItem for each item that has permission changes
+        """
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+        
+        # Get existing token or None for initial sync
+        existing_token = self.token_storage.get_token(self.drive_id, "permissions")
+        
+        await logger.ainfo(
+            "Starting Graph delta query for permission changes",
+            drive_id=self.drive_id,
+            has_existing_token=existing_token is not None
+        )
+        
+        try:
+            # Build the delta request with permission tracking headers
+            import httpx
+            
+            # Use direct HTTP call since msgraph SDK doesn't easily support custom headers for delta
+            async with httpx.AsyncClient() as http_client:
+                # Get access token
+                token = await self._credential.get_token("https://graph.microsoft.com/.default")
+                
+                # Build delta URL
+                if existing_token:
+                    # Use stored delta link/token
+                    delta_url = f"https://graph.microsoft.com/v1.0/drives/{self.drive_id}/root/delta?token={existing_token.token}"
+                else:
+                    # Initial enumeration
+                    delta_url = f"https://graph.microsoft.com/v1.0/drives/{self.drive_id}/root/delta"
+                
+                headers = {
+                    "Authorization": f"Bearer {token.token}",
+                    **self.DELTA_HEADERS
+                }
+                
+                new_delta_link = None
+                items_processed = 0
+                items_with_sharing_changes = 0
+                
+                # Page through results
+                while delta_url:
+                    response = await http_client.get(delta_url, headers=headers, timeout=60.0)
+                    
+                    if response.status_code == 410:
+                        # Token expired, need to start fresh
+                        await logger.awarning("Delta token expired, starting fresh enumeration")
+                        self.token_storage.delete_token(self.drive_id, "permissions")
+                        delta_url = f"https://graph.microsoft.com/v1.0/drives/{self.drive_id}/root/delta"
+                        existing_token = None
+                        continue
+                    
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Process items
+                    for item in data.get("value", []):
+                        items_processed += 1
+                        
+                        # Check for permission change annotation
+                        sharing_changed = item.get("@microsoft.graph.sharedChanged") == "True"
+                        
+                        # Skip folders unless they have sharing changes
+                        if "folder" in item and not sharing_changed:
+                            continue
+                        
+                        # Skip deleted items for permission sync (they'll be handled by file sync)
+                        if "deleted" in item:
+                            continue
+                        
+                        # Only yield if this is initial sync (no token) or item has sharing changes
+                        if not existing_token or sharing_changed:
+                            if sharing_changed:
+                                items_with_sharing_changes += 1
+                                await logger.ainfo(
+                                    "Item with permission change detected",
+                                    item_id=item.get("id"),
+                                    name=item.get("name"),
+                                    sharing_changed=True
+                                )
+                            
+                            # Build path from parentReference
+                            parent_ref = item.get("parentReference", {})
+                            parent_path = parent_ref.get("path", "")
+                            # Remove the /drives/{id}/root: prefix
+                            if ":/" in parent_path:
+                                parent_path = parent_path.split(":/", 1)[1]
+                            elif parent_path:
+                                parent_path = parent_path.lstrip("/")
+                            
+                            item_path = f"/{parent_path}/{item.get('name', '')}" if parent_path else f"/{item.get('name', '')}"
+                            item_path = item_path.replace("//", "/")
+                            
+                            yield PermissionChangedItem(
+                                item_id=item.get("id", ""),
+                                name=item.get("name", ""),
+                                path=item_path,
+                                sharing_changed=sharing_changed
+                            )
+                    
+                    # Get next page or delta link
+                    delta_url = data.get("@odata.nextLink")
+                    if not delta_url:
+                        # No more pages, save the delta link for next time
+                        new_delta_link = data.get("@odata.deltaLink")
+                
+                await logger.ainfo(
+                    "Graph delta query completed",
+                    items_processed=items_processed,
+                    items_with_sharing_changes=items_with_sharing_changes,
+                    is_initial_sync=existing_token is None
+                )
+                
+                # Save the new delta link for next run
+                if new_delta_link:
+                    # Extract token from delta link
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(new_delta_link)
+                    query_params = parse_qs(parsed.query)
+                    token_value = query_params.get("token", [None])[0]
+                    
+                    if token_value:
+                        new_token = DeltaToken(
+                            drive_id=self.drive_id,
+                            token=token_value,
+                            last_updated=datetime.utcnow(),
+                            token_type="permissions"
+                        )
+                        self.token_storage.save_token(new_token)
+        
+        except Exception as e:
+            await logger.aerror("Error during Graph delta query", error=str(e))
+            raise
+
+
+def get_permissions_delta_mode() -> str:
+    """
+    Get the configured permissions delta detection mode.
+    
+    Returns:
+        "hash" or "graph_delta"
+    """
+    return os.environ.get("PERMISSIONS_DELTA_MODE", "hash").lower()
