@@ -59,6 +59,9 @@ param(
     
     # Storage Configuration
     [Parameter(Mandatory = $false)]
+    [string]$StorageResourceGroupName,  # Resource group for storage account (defaults to ResourceGroupName if not specified)
+    
+    [Parameter(Mandatory = $false)]
     [string]$StorageContainerName = "inputdata",
     
     # AI Search Component Names
@@ -372,7 +375,11 @@ if ($SearchAdminKey) {
 
 # Get Storage Account Resource ID for managed identity connection
 Write-Step "Building Storage Account Resource ID"
-$storageResourceId = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage/storageAccounts/$StorageAccountName"
+# Use StorageResourceGroupName if provided, otherwise fall back to ResourceGroupName
+if (-not $StorageResourceGroupName) {
+    $StorageResourceGroupName = $ResourceGroupName
+}
+$storageResourceId = "/subscriptions/$SubscriptionId/resourceGroups/$StorageResourceGroupName/providers/Microsoft.Storage/storageAccounts/$StorageAccountName"
 $storageConnectionString = "ResourceId=$storageResourceId;"
 Write-Success "Storage Resource ID built: $storageResourceId"
 
@@ -447,7 +454,7 @@ $dataSourceReplacements = @{
     '${dataSourceName}' = "$DataSourceName"
     '${containerName}' = "$StorageContainerName"
     '${subscriptionId}' = "$SubscriptionId"
-    '${resourceGroup}' = "$ResourceGroupName"
+    '${resourceGroup}' = "$StorageResourceGroupName"
     '${storageAccount}' = "$StorageAccountName"
 }
 $rawDataSource = Update-JsonContent -JsonContent $rawDataSource -Replacements $dataSourceReplacements
@@ -567,6 +574,7 @@ $skillsetReplacements = @{
     '${embeddingDeploymentId}' = "$OpenAIDeploymentId"
     '${embeddingDimensions}' = "$OpenAIEmbeddingDimensions"
     '${embeddingModelName}' = "$OpenAIModelName"
+    '${cognitiveServicesResourceUri}' = "$CognitiveServicesResourceUri"
     '${subscriptionId}' = "$SubscriptionId"
     '${resourceGroup}' = "$ResourceGroupName"
     '${storageAccount}' = "$StorageAccountName"
@@ -574,16 +582,21 @@ $skillsetReplacements = @{
 
 $skillsetDefinition = Update-JsonContent -JsonContent $skillsetDefinition -Replacements $skillsetReplacements
 
-# Handle API Key authentication for skills in skillset
+# Handle API Key authentication for skills in skillset (only when NOT using managed identity)
 if ($useOpenAIApiKey -and $OpenAIApiKey) {
-    # Parse JSON, add apiKey to AzureOpenAIEmbeddingSkill, re-serialize
+    # Parse JSON, add apiKey to embedding and chat completion skills, re-serialize
     $skillsetObj = $skillsetDefinition | ConvertFrom-Json
     foreach ($skill in $skillsetObj.skills) {
         if ($skill.'@odata.type' -eq "#Microsoft.Skills.Text.AzureOpenAIEmbeddingSkill") {
             $skill | Add-Member -MemberType NoteProperty -Name "apiKey" -Value $OpenAIApiKey -Force
         }
+        if ($skill.'@odata.type' -eq "#Microsoft.Skills.Custom.ChatCompletionSkill") {
+            $skill | Add-Member -MemberType NoteProperty -Name "apiKey" -Value $OpenAIApiKey -Force
+        }
     }
     $skillsetDefinition = $skillsetObj | ConvertTo-Json -Depth 20
+} else {
+    Write-Host "  Using Managed Identity for OpenAI skills (no apiKey set)" -ForegroundColor Green
 }
 
 # Handle Cognitive Services API Key for Vision skills

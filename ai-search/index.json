@@ -1,5 +1,7 @@
 {
-  "name": "businessbooster-marketing-index",
+  "@odata.etag": "\"0x8DD3CCB1DE5C490\"",
+  "name": "${indexName}",
+
   "fields": [
     {
       "name": "chunk_id",
@@ -12,6 +14,30 @@
       "facetable": false,
       "key": true,
       "analyzer": "keyword",
+      "synonymMaps": []
+    },
+    {
+      "name": "acl_user_ids",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
+      "name": "acl_group_ids",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
       "synonymMaps": []
     },
     {
@@ -61,7 +87,31 @@
       "facetable": false,
       "key": false,
       "dimensions": ${embeddingDimensions},
-      "vectorSearchProfile": "businessbooster-marketing-index-azureOpenAi-text-profile",
+      "vectorSearchProfile": "${indexName}-azureOpenAi-text-profile",
+      "synonymMaps": []
+    },
+    {
+      "name": "case_id",
+      "type": "Edm.String",
+      "searchable": false,
+      "filterable": true,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
+      "synonymMaps": []
+    },
+    {
+      "name": "original_file_name",
+      "type": "Edm.String",
+      "searchable": true,
+      "filterable": false,
+      "retrievable": true,
+      "stored": true,
+      "sortable": false,
+      "facetable": false,
+      "key": false,
       "synonymMaps": []
     }
   ],
@@ -76,10 +126,10 @@
     "@odata.type": "#Microsoft.Azure.Search.BM25Similarity"
   },
   "semantic": {
-    "defaultConfiguration": "businessbooster-marketing-index-semantic-configuration",
+    "defaultConfiguration": "${indexName}-semantic-configuration",
     "configurations": [
       {
-        "name": "businessbooster-marketing-index-semantic-configuration",
+        "name": "${indexName}-semantic-configuration",
         "prioritizedFields": {
           "titleField": {
             "fieldName": "title"
@@ -97,7 +147,7 @@
   "vectorSearch": {
     "algorithms": [
       {
-        "name": "businessbooster-marketing-index-algorithm",
+        "name": "${indexName}-algorithm",
         "kind": "hnsw",
         "hnswParameters": {
           "metric": "cosine",
@@ -109,14 +159,14 @@
     ],
     "profiles": [
       {
-        "name": "businessbooster-marketing-index-azureOpenAi-text-profile",
-        "algorithm": "businessbooster-marketing-index-algorithm",
-        "vectorizer": "businessbooster-marketing-index-azureOpenAi-text-vectorizer"
+        "name": "${indexName}-azureOpenAi-text-profile",
+        "algorithm": "${indexName}-algorithm",
+        "vectorizer": "${indexName}-azureOpenAi-text-vectorizer"
       }
     ],
     "vectorizers": [
       {
-        "name": "businessbooster-marketing-index-azureOpenAi-text-vectorizer",
+        "name": "${indexName}-azureOpenAi-text-vectorizer",
         "kind": "azureOpenAI",
         "azureOpenAIParameters": {
           "resourceUri": "${openAIResourceUri}",

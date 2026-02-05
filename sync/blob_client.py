@@ -146,7 +146,7 @@ class BlobStorageClient:
         List all blobs in the container with the configured prefix.
         
         Yields:
-            BlobFile objects for each blob
+            BlobFile objects for each blob (excludes directories in HNS-enabled storage)
         """
         if not self._container_client:
             raise RuntimeError("Client not initialized. Use async with context manager.")
@@ -156,6 +156,13 @@ class BlobStorageClient:
         await logger.ainfo("Listing blobs", container=self.container_name, prefix=prefix)
         
         async for blob in self._container_client.list_blobs(name_starts_with=prefix, include=['metadata']):
+            # Skip directories in HNS-enabled storage (they have size 0 and are marked as directories)
+            # Directories end with "/" or have is_directory=True in metadata
+            if blob.name.endswith('/'):
+                continue
+            # Also skip items with size 0 that look like directories (no file extension in last segment)
+            if blob.size == 0 and '.' not in blob.name.split('/')[-1]:
+                continue
             yield BlobFile(
                 name=blob.name,
                 size=blob.size,
@@ -245,7 +252,11 @@ class BlobStorageClient:
     
     async def delete_blob(self, blob_name: str, dry_run: bool = False) -> None:
         """
-        Delete a blob.
+        Delete a blob or directory.
+        
+        For hierarchical namespace (HNS) enabled storage accounts, directories
+        must be deleted recursively. This method handles both regular blobs
+        and HNS directories.
         
         Args:
             blob_name: The blob name to delete
@@ -258,8 +269,52 @@ class BlobStorageClient:
             await logger.ainfo("[DRY RUN] Would delete blob", blob_name=blob_name)
         else:
             blob_client = self._container_client.get_blob_client(blob_name)
+            try:
+                await blob_client.delete_blob()
+                await logger.ainfo("Deleted blob", blob_name=blob_name)
+            except Exception as e:
+                # Check if this is a directory that needs recursive deletion
+                # This happens with HNS-enabled storage (Data Lake Storage Gen2)
+                if "DirectoryIsNotEmpty" in str(e):
+                    await logger.ainfo("Deleting directory recursively", blob_name=blob_name)
+                    await self._delete_directory_recursive(blob_name)
+                else:
+                    raise
+
+    async def _delete_directory_recursive(self, directory_path: str) -> None:
+        """
+        Recursively delete a directory and all its contents (for HNS-enabled storage).
+        
+        Args:
+            directory_path: The directory path to delete
+        """
+        if not self._container_client:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+        
+        # First, delete all blobs/files within the directory
+        prefix = directory_path.rstrip("/") + "/"
+        blobs_deleted = 0
+        
+        async for blob in self._container_client.list_blobs(name_starts_with=prefix):
+            try:
+                blob_client = self._container_client.get_blob_client(blob.name)
+                await blob_client.delete_blob()
+                blobs_deleted += 1
+            except Exception as e:
+                await logger.awarning("Failed to delete blob in directory", 
+                                     blob_name=blob.name, error=str(e))
+        
+        # Now try to delete the directory itself
+        try:
+            blob_client = self._container_client.get_blob_client(directory_path)
             await blob_client.delete_blob()
-            await logger.ainfo("Deleted blob", blob_name=blob_name)
+        except Exception:
+            # Directory might not exist as a separate blob (flat namespace behavior)
+            pass
+        
+        await logger.ainfo("Deleted directory", 
+                          directory_path=directory_path, 
+                          blobs_deleted=blobs_deleted)
     
     def should_update(self, blob: BlobFile, sp_last_modified: datetime, sp_content_hash: str | None) -> bool:
         """
@@ -307,6 +362,8 @@ class BlobStorageClient:
         """
         Update metadata on an existing blob (merges with existing metadata).
         
+        Removes deprecated metadata fields and keeps only essential ones.
+        
         Args:
             blob_name: The blob name
             additional_metadata: New metadata to add/update
@@ -329,6 +386,15 @@ class BlobStorageClient:
                 existing_metadata = properties.metadata or {}
             except Exception:
                 existing_metadata = {}
+            
+            # Remove deprecated metadata fields
+            deprecated_fields = [
+                "metadata_user_ids", "metadata_group_ids",
+                "acl_user_ids_list", "acl_group_ids_list",
+                "metadata_acl_user_ids", "metdata_acl_group_ids"
+            ]
+            for field in deprecated_fields:
+                existing_metadata.pop(field, None)
             
             # Merge metadata
             merged_metadata = {**existing_metadata, **additional_metadata}

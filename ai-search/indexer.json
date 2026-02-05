@@ -1,18 +1,17 @@
 {
   "@odata.context": "https://aisearchjtpoc.search.windows.net/$metadata#indexers/$entity",
   "@odata.etag": "\"0x8DD3FE8EB9B50BF\"",
-  "name": "vector-jt-poc-indexer",
+  "name": "${indexerName}",
   "description": null,
-  "dataSourceName": "vector-jt-poc-datasource",
-  "skillsetName": "vector-jt-poc-skillset",
-  "targetIndexName": "vector-jt-poc",
+  "dataSourceName": "${dataSourceName}",
+  "skillsetName": "${skillsetName}",
+  "targetIndexName": "${indexName}",
   "disabled": null,
   "schedule": null,
   "parameters": {
     "batchSize": null,
-    "maxFailedItems": null,
-    "maxFailedItemsPerBatch": null,
-    "base64EncodeKeys": null,
+    "maxFailedItems": -1,
+    "maxFailedItemsPerBatch": -1,
     "configuration": {
       "dataToExtract": "contentAndMetadata",
       "parsingMode": "default",
@@ -29,9 +28,13 @@
       "sourceFieldName": "caseId",
       "targetFieldName": "case_id",
       "mappingFunction": null
+    },
+    {
+      "sourceFieldName": "originalFileName",
+      "targetFieldName": "original_file_name",
+      "mappingFunction": null
     }
   ],
   "outputFieldMappings": [],
-  "cache": null,
   "encryptionKey": null
 }
