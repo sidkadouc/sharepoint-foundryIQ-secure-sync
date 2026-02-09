@@ -4,14 +4,21 @@ Uses DefaultAzureCredential for authentication, which supports:
 - Managed Identity (when running in Azure Container Apps)
 - Client Credentials (when AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID are set)
 - Azure CLI (when logged in via 'az login')
+
+Supports delta queries for incremental sync:
+- First run: full crawl via delta endpoint, returns a delta token
+- Subsequent runs: only changed/deleted items since last delta token
+See: https://learn.microsoft.com/en-us/graph/api/driveitem-delta
 """
 
 import asyncio
 import os
 from datetime import datetime
-from typing import AsyncIterator
-from dataclasses import dataclass
+from typing import AsyncIterator, List, Optional
+from dataclasses import dataclass, field
+from enum import Enum
 
+import httpx
 import structlog
 from azure.identity.aio import DefaultAzureCredential, ClientSecretCredential
 from msgraph import GraphServiceClient
@@ -61,6 +68,31 @@ class SharePointFile:
     last_modified: datetime
     download_url: str | None = None
     content_hash: str | None = None  # eTag or cTag for change detection
+
+
+class DeltaChangeType(Enum):
+    """Type of change detected via delta query."""
+    CREATED_OR_MODIFIED = "created_or_modified"
+    DELETED = "deleted"
+
+
+@dataclass
+class DeltaChange:
+    """Represents a single change from a delta query."""
+    change_type: DeltaChangeType
+    file: Optional[SharePointFile] = None  # Set for created/modified files (not folders or deletions)
+    item_id: str = ""                       # Always set
+    item_name: str = ""                     # Best-effort name
+    item_path: str = ""                     # Best-effort path
+    is_folder: bool = False                 # True if the item is a folder
+
+
+@dataclass
+class DeltaResult:
+    """Result of a delta query including changes and the new delta token."""
+    changes: List[DeltaChange] = field(default_factory=list)
+    delta_token: str = ""    # The new deltaLink URL to persist for next run
+    is_initial_sync: bool = False  # True when no previous token was supplied
 
 
 class SharePointClient:
@@ -284,3 +316,174 @@ class SharePointClient:
             return b""
         
         return content
+
+    # ------------------------------------------------------------------ #
+    #  Delta query support
+    # ------------------------------------------------------------------ #
+
+    async def _get_access_token(self) -> str:
+        """Obtain a bearer token for Microsoft Graph using a fresh credential."""
+        # Create a fresh credential to avoid conflicts with the GraphServiceClient's
+        # internal HTTP transport (which may close the shared credential).
+        credential = _get_credential()
+        try:
+            token = await credential.get_token("https://graph.microsoft.com/.default")
+            return token.token
+        finally:
+            await credential.close()
+
+    async def get_delta(
+        self,
+        delta_link: str | None = None,
+    ) -> DeltaResult:
+        """
+        Use the Microsoft Graph delta API to get incremental changes.
+
+        If *delta_link* is ``None`` (first run), a full-crawl delta is performed
+        and a delta token is returned for subsequent calls.
+
+        See https://learn.microsoft.com/en-us/graph/api/driveitem-delta
+
+        Args:
+            delta_link: The deltaLink URL returned by a previous call.
+                        Pass ``None`` for the initial full sync.
+
+        Returns:
+            DeltaResult with the list of changes and a new delta token.
+        """
+        if not self._credential or not self.drive_id:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+
+        is_initial = delta_link is None
+        # Starting URL: either the saved deltaLink or the initial delta endpoint
+        url = delta_link or f"https://graph.microsoft.com/v1.0/drives/{self.drive_id}/root/delta"
+
+        await logger.ainfo("Starting delta query",
+                          is_initial=is_initial,
+                          url=url[:120])
+
+        token = await self._get_access_token()
+        headers = {"Authorization": f"Bearer {token}"}
+
+        changes: List[DeltaChange] = []
+        new_delta_link = ""
+
+        async with httpx.AsyncClient(timeout=120) as http:
+            next_url: str | None = url
+            page = 0
+
+            while next_url:
+                page += 1
+                resp = await http.get(next_url, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+
+                items = data.get("value", [])
+                await logger.ainfo("Delta page received",
+                                  page=page, items_in_page=len(items))
+
+                for item in items:
+                    change = self._parse_delta_item(item)
+                    if change:
+                        changes.append(change)
+
+                # Follow @odata.nextLink for paging, or capture @odata.deltaLink
+                next_url = data.get("@odata.nextLink")
+                if not next_url:
+                    new_delta_link = data.get("@odata.deltaLink", "")
+
+        file_changes = [c for c in changes if not c.is_folder]
+        folder_changes = [c for c in changes if c.is_folder]
+        deletions = [c for c in changes if c.change_type == DeltaChangeType.DELETED]
+
+        await logger.ainfo("Delta query complete",
+                          total_changes=len(changes),
+                          file_changes=len(file_changes),
+                          folder_changes=len(folder_changes),
+                          deletions=len(deletions),
+                          is_initial=is_initial)
+
+        return DeltaResult(
+            changes=file_changes,   # only file-level changes (callers don't need folder entries)
+            delta_token=new_delta_link,
+            is_initial_sync=is_initial,
+        )
+
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _parse_delta_item(item: dict) -> Optional[DeltaChange]:
+        """
+        Parse a raw JSON item from the delta response into a DeltaChange.
+
+        Deleted items carry a ``deleted`` facet; everything else is
+        treated as created-or-modified.
+        """
+        item_id = item.get("id", "")
+        item_name = item.get("name", "")
+
+        # Build the path from parentReference.path + name
+        parent_ref = item.get("parentReference", {})
+        parent_path_raw = parent_ref.get("path", "")  # e.g. "/drives/{id}/root:/folder"
+        # Strip the /drives/{id}/root: prefix to get the SharePoint-relative path
+        if ":" in parent_path_raw:
+            parent_path = parent_path_raw.split(":", 1)[1]  # "/folder"
+        else:
+            parent_path = ""
+        if parent_path:
+            item_path = f"{parent_path.rstrip('/')}/{item_name}"
+        else:
+            item_path = f"/{item_name}" if item_name else ""
+
+        is_folder = "folder" in item
+
+        # Deleted item
+        if "deleted" in item:
+            return DeltaChange(
+                change_type=DeltaChangeType.DELETED,
+                item_id=item_id,
+                item_name=item_name,
+                item_path=item_path,
+                is_folder=is_folder,
+            )
+
+        # Folder (not a file) – still return so caller can filter
+        if is_folder:
+            return DeltaChange(
+                change_type=DeltaChangeType.CREATED_OR_MODIFIED,
+                item_id=item_id,
+                item_name=item_name,
+                item_path=item_path,
+                is_folder=True,
+            )
+
+        # File
+        if "file" in item:
+            last_modified = None
+            lm_str = item.get("lastModifiedDateTime")
+            if lm_str:
+                try:
+                    last_modified = datetime.fromisoformat(lm_str.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+
+            sp_file = SharePointFile(
+                id=item_id,
+                name=item_name,
+                path=item_path,
+                size=item.get("size", 0),
+                last_modified=last_modified,
+                download_url=item.get("@microsoft.graph.downloadUrl"),
+                content_hash=item.get("cTag") or item.get("eTag"),
+            )
+            return DeltaChange(
+                change_type=DeltaChangeType.CREATED_OR_MODIFIED,
+                file=sp_file,
+                item_id=item_id,
+                item_name=item_name,
+                item_path=item_path,
+                is_folder=False,
+            )
+
+        # Unknown item type – skip
+        return None
