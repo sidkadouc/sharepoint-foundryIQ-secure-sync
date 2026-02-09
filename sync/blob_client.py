@@ -4,11 +4,15 @@ Uses DefaultAzureCredential for authentication, which supports:
 - Managed Identity (when running in Azure Container Apps)
 - Client Credentials (when AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID are set)
 - Azure CLI (when logged in via 'az login')
+
+Includes delta token persistence: the last Graph delta link is stored as a
+small blob so that subsequent runs can do incremental (delta) syncs.
 """
 
+import json
 import os
 from datetime import datetime, timezone
-from typing import Dict, AsyncIterator
+from typing import Dict, AsyncIterator, Optional
 from dataclasses import dataclass
 
 import structlog
@@ -78,6 +82,9 @@ class BlobStorageClient:
     # See: https://learn.microsoft.com/en-us/azure/search/search-index-access-control-lists-and-rbac-push-api
     METADATA_ACL_USER_IDS = "acl_user_ids"    # JSON array of user Entra Object IDs
     METADATA_ACL_GROUP_IDS = "acl_group_ids"  # JSON array of group Entra Object IDs
+
+    # Blob name used to persist the Graph API delta token between runs
+    DELTA_TOKEN_BLOB = ".sync-state/delta-token.json"
     
     def __init__(self, account_url: str, container_name: str, blob_prefix: str = ""):
         """
@@ -401,3 +408,68 @@ class BlobStorageClient:
                 blob_name=blob_name,
                 metadata_keys=list(additional_metadata.keys())
             )
+
+    # ------------------------------------------------------------------ #
+    #  Delta token persistence
+    # ------------------------------------------------------------------ #
+
+    async def load_delta_token(self) -> Optional[str]:
+        """
+        Load the saved Graph delta link from blob storage.
+
+        Returns:
+            The deltaLink URL string, or None if no token has been saved yet
+            (i.e. first run).
+        """
+        if not self._container_client:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+
+        try:
+            blob_client = self._container_client.get_blob_client(self.DELTA_TOKEN_BLOB)
+            download = await blob_client.download_blob()
+            raw = await download.readall()
+            data = json.loads(raw)
+            delta_link = data.get("delta_link")
+            saved_at = data.get("saved_at", "unknown")
+            await logger.ainfo("Loaded delta token from blob storage",
+                              saved_at=saved_at,
+                              delta_link_preview=delta_link[:100] if delta_link else None)
+            return delta_link
+        except Exception:
+            await logger.ainfo("No existing delta token found — will do full initial sync")
+            return None
+
+    async def save_delta_token(self, delta_link: str, dry_run: bool = False) -> None:
+        """
+        Persist the Graph delta link to blob storage for the next run.
+
+        Args:
+            delta_link: The @odata.deltaLink URL to save.
+            dry_run: If True, skip the actual write.
+        """
+        if not self._container_client:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+
+        payload = json.dumps({
+            "delta_link": delta_link,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        if dry_run:
+            await logger.ainfo("[DRY RUN] Would save delta token")
+        else:
+            blob_client = self._container_client.get_blob_client(self.DELTA_TOKEN_BLOB)
+            await blob_client.upload_blob(payload.encode(), overwrite=True)
+            await logger.ainfo("Saved delta token to blob storage")
+
+    async def clear_delta_token(self) -> None:
+        """Delete the persisted delta token, forcing a full re-sync on next run."""
+        if not self._container_client:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+
+        try:
+            blob_client = self._container_client.get_blob_client(self.DELTA_TOKEN_BLOB)
+            await blob_client.delete_blob()
+            await logger.ainfo("Cleared delta token — next run will be a full sync")
+        except Exception:
+            pass  # Token didn't exist

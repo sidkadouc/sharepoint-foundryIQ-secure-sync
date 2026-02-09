@@ -25,10 +25,12 @@ This solution synchronizes files from SharePoint Online to Azure Blob Storage an
 ## Features
 
 ### SharePoint Sync
-- **Incremental sync**: Only uploads new or modified files (based on timestamps and content hashes)
-- **Delete detection**: Optionally removes blobs deleted from SharePoint
+- **Delta (incremental) sync**: Uses Microsoft Graph delta API to detect only changed files since the last run
+- **Delta token persistence**: Stores the Graph delta token in blob storage between runs
+- **Delete detection**: Automatically detects files deleted in SharePoint via delta and removes corresponding blobs
 - **Folder recursion**: Syncs all files in nested folders
-- **Permission sync**: Exports SharePoint permissions as blob metadata for search-time filtering
+- **Permission sync**: Exports SharePoint permissions as blob metadata on every run (permission changes are invisible to delta)
+- **Full sync fallback**: Set `FORCE_FULL_SYNC=true` to bypass delta and do a complete re-scan
 - **Dry run mode**: Preview changes without modifications
 
 ### Azure AI Search Integration
@@ -110,6 +112,76 @@ cd tests && python test_search.py -q "your query"
 | `DELETE_ORPHANED_BLOBS` | No | `false` | Delete blobs removed from SharePoint |
 | `DRY_RUN` | No | `false` | Preview mode without changes |
 | `SYNC_PERMISSIONS` | No | `false` | Sync SharePoint permissions to blob metadata |
+| `FORCE_FULL_SYNC` | No | `false` | Skip delta and do a full re-scan of SharePoint |
+
+## How Delta Sync Works
+
+The sync job uses the [Microsoft Graph delta API](https://learn.microsoft.com/en-us/graph/api/driveitem-delta) to efficiently detect changes in SharePoint without listing and comparing every file on each run.
+
+### Sync Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          First Run                                     │
+│                                                                        │
+│  1. No delta token found in blob storage                               │
+│  2. Call GET /drives/{id}/root/delta (full crawl via delta endpoint)   │
+│  3. Graph returns ALL items + a deltaLink token                        │
+│  4. Upload all files to blob, sync permissions                         │
+│  5. Save deltaLink to .sync-state/delta-token.json in blob storage    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       Subsequent Runs                                  │
+│                                                                        │
+│  1. Load saved delta token from .sync-state/delta-token.json          │
+│  2. Call GET {deltaLink} (returns ONLY items changed since last token) │
+│  3. Process changes:                                                   │
+│     • Created/modified files → download & upload to blob               │
+│     • Deleted files → remove from blob storage                         │
+│  4. Save new deltaLink for next run                                    │
+│  5. Always re-sync permissions for all files (see note below)          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Delta Change Types
+
+| Change | Delta Reports It? | Action |
+|--------|-------------------|--------|
+| File created | Yes | Download and upload to blob |
+| File content modified | Yes | Re-download and overwrite blob |
+| File renamed/moved | Yes | Upload to new path (old path cleaned by orphan detection) |
+| File deleted | Yes (`deleted` facet) | Delete blob |
+| **Permission changed** | **No** | Handled separately (see below) |
+
+### Why Permissions Are Always Fully Synced
+
+The Graph delta API tracks **file content and metadata changes** (name, size, modified date, etc.) but does **not** report permission changes. A file can have its sharing settings modified without the delta API ever returning it as a changed item.
+
+To ensure permissions stay in sync, the job **always re-fetches permissions for all files** from the Graph API when `SYNC_PERMISSIONS=true`, regardless of whether delta detected any file changes.
+
+### Delta Token Persistence
+
+The delta token is stored as a JSON blob at `.sync-state/delta-token.json` in the same container:
+
+```json
+{
+  "delta_link": "https://graph.microsoft.com/v1.0/drives/{id}/root/delta?token=...",
+  "saved_at": "2026-02-09T21:35:08.772753+00:00"
+}
+```
+
+To force a full re-crawl, either:
+- Set `FORCE_FULL_SYNC=true` in your `.env`
+- Delete the `.sync-state/delta-token.json` blob manually
+
+### Sync Modes Summary
+
+| Mode | When | Files Downloaded | Permissions |
+|------|------|-----------------|-------------|
+| `delta-initial` | First run (no token) | All files | All files |
+| `delta-incremental` | Token exists | Only changed files | All files (always) |
+| `full` | `FORCE_FULL_SYNC=true` | All files (with hash comparison) | All files |
 
 ### Authentication
 
