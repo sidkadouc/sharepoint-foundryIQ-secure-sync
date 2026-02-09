@@ -253,9 +253,12 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                         delta_result.delta_token, dry_run=config.dry_run)
 
                 # Permissions: always do a full scan when enabled.
-                # Permission changes are NOT detected by the Graph delta API
-                # (only file content/metadata changes are), so we must re-check
-                # all files' permissions on every run.
+                # The Graph delta API CAN detect permission changes via the
+                # Prefer: deltashowsharingchanges header, but this requires
+                # Sites.FullControl.All — we only use Sites.Read.All, so
+                # delta-based permission tracking is not available to us.
+                # Full re-scan is the correct approach at this permission level.
+                # See: https://learn.microsoft.com/en-us/graph/api/driveitem-delta#scanning-permissions-hierarchies
                 if sync_permissions:
                     await logger.ainfo(
                         "Syncing permissions for ALL files "

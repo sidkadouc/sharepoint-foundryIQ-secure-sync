@@ -29,9 +29,67 @@ Subsequent Runs:
 | File created/modified | Yes | Download & upload |
 | File renamed/moved | Yes | Upload to new path |
 | File deleted | Yes | Delete blob |
-| **Permission changed** | **No** | Always fully re-synced |
+| **Permission changed** | **No** ¹ | Always fully re-synced |
 
-> Permissions are always fully re-synced because the Graph delta API does not report permission changes.
+> ¹ Permissions are always fully re-synced on every run. See [Why permissions are fully re-synced](#why-permissions-are-fully-re-synced) below for details.
+
+## Why Permissions Are Fully Re-synced
+
+The Microsoft Graph **driveItem: delta** API _can_ detect permission changes, but
+only when **all** of the following conditions are met:
+
+1. The request includes the `Prefer` header:
+   ```
+   Prefer: deltashowremovedasdeleted, deltatraversepermissiongaps, deltashowsharingchanges
+   ```
+   Items whose permissions changed are then annotated with
+   `"@microsoft.graph.sharedChanged": "True"` in the delta response.
+
+2. The `Prefer: hierarchicalsharing` header is also added to get sharing info
+   only for items with explicit sharing changes (not inherited).
+
+3. The app registration holds **`Sites.FullControl.All`** application permission
+   — the docs state: _"In order to process permissions correctly your application
+   will need to request Sites.FullControl.All permissions."_
+
+**Our app uses `Sites.Read.All` (or the scoped `Sites.Selected` with read
+role).** This is intentional — we follow the principle of least privilege and only
+need read access to enumerate files and their permissions. Because we do not (and
+should not) request `Sites.FullControl.All`, the delta-based permission change
+tracking is **not available** to us.
+
+### Current approach: full permission re-scan
+
+On every sync run the job:
+1. Uses the delta API to efficiently detect **file** content changes (adds, edits, deletes).
+2. Lists **all** files in the library and re-fetches their permissions via
+   `GET /drives/{driveId}/items/{itemId}/permissions` — this endpoint only
+   requires `Files.Read.All` / `Sites.Read.All`.
+3. Writes the permissions as blob metadata (`user_ids`, `group_ids`) so that
+   downstream AI Search can apply ACL filters.
+
+This is the **recommended approach** when you want to stay on `Sites.Read.All`:
+- It is simple and correct — no permission change is ever missed.
+- The per-file `/permissions` call is lightweight (small JSON, no file download).
+- For libraries with a few hundred files the overhead is minimal (a few seconds).
+
+### Alternative: delta-aware permission sync
+
+If your library has **thousands of files** and permission changes are frequent,
+you could switch to the delta-aware approach by:
+
+1. Adding `Sites.FullControl.All` to the app registration.
+2. Sending the three `Prefer` headers with the delta query.
+3. Checking for `@microsoft.graph.sharedChanged` on each item and only
+   re-fetching permissions for those items.
+
+This trades a broader permission scope for reduced API calls.
+
+### References
+
+- [driveItem: delta — Scanning permissions hierarchies](https://learn.microsoft.com/en-us/graph/api/driveitem-delta?view=graph-rest-1.0#scanning-permissions-hierarchies)
+- [Best practices for discovering files and detecting changes at scale](https://learn.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance)
+- [List driveItem permissions](https://learn.microsoft.com/en-us/graph/api/driveitem-list-permissions?view=graph-rest-1.0)
 
 ## Files
 
