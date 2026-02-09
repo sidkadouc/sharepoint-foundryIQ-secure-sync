@@ -327,12 +327,119 @@ results = client.search(query="...", filter=filter)
 
 ### Demo App
 
-The `demo/` directory contains a Flask web app that demonstrates the full end-to-end flow:
+The `demo/` directory contains a Flask web app that demonstrates the full end-to-end ACL flow:
 
 1. User signs in via Entra ID (MSAL authorization code flow)
 2. Group IDs are extracted from the ID token `groups` claim
 3. Search queries are filtered by the user's group memberships
 4. Users only see documents they have access to
+
+#### App Registration Setup (Minimal Permissions — No Admin Consent)
+
+The demo uses a **dedicated app registration** (separate from the sync job's app) that requires only **user-level consent** — no admin approval needed.
+
+**Step 1: Create the app registration**
+
+```bash
+# Create the app registration
+az ad app create \
+  --display-name "SharePoint Search ACL Demo" \
+  --sign-in-audience AzureADMyOrg \
+  --web-redirect-uris "http://localhost:5000/auth/callback"
+
+# Note the appId from the output — this is your DEMO_CLIENT_ID
+```
+
+**Step 2: Add a client secret**
+
+```bash
+az ad app credential reset \
+  --id <app-id> \
+  --display-name "demo-secret"
+
+# Note the password — this is your DEMO_CLIENT_SECRET
+```
+
+**Step 3: Configure API permissions (delegated only)**
+
+| Permission | Type | Admin Consent? | Purpose |
+|------------|------|----------------|---------|
+| `User.Read` | Delegated | **No** | Read signed-in user's profile |
+
+That's it — only **one delegated permission** that any user can consent to themselves.
+
+> **Why no `GroupMember.Read.All`?** That scope requires admin consent. Instead, we use `groupMembershipClaims` (Step 4) which embeds group IDs directly in the ID token — no extra Graph API call needed.
+
+**Step 4: Enable group claims in the token**
+
+This is the key configuration that avoids admin consent. Set `groupMembershipClaims` in the app manifest so Entra ID includes the user's security group Object IDs directly in the ID token:
+
+```bash
+# Via Azure CLI
+az rest --method PATCH \
+  --uri "https://graph.microsoft.com/v1.0/applications(appId='<app-id>')" \
+  --headers "Content-Type=application/json" \
+  --body '{"groupMembershipClaims": "SecurityGroup"}'
+```
+
+Or via the Azure Portal: **App registrations → your app → Manifest → set `"groupMembershipClaims": "SecurityGroup"`**
+
+**Step 5: Set environment variables**
+
+```bash
+# In your .env file
+DEMO_CLIENT_ID=<app-id>
+DEMO_CLIENT_SECRET=<client-secret>
+DEMO_TENANT_ID=<your-tenant-id>
+```
+
+#### How It Works (No Admin Consent Required)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Traditional approach (requires admin consent):                        │
+│                                                                        │
+│  Login → get access token with GroupMember.Read.All scope              │
+│        → call Graph /me/memberOf → get group IDs                       │
+│        ⚠ GroupMember.Read.All requires admin consent                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Our approach (user consent only):                                     │
+│                                                                        │
+│  Login with User.Read scope only                                       │
+│        → Entra ID includes "groups" claim in the ID token              │
+│           (because groupMembershipClaims = "SecurityGroup")            │
+│        → App reads group IDs directly from id_token_claims["groups"]   │
+│        → No Graph API call needed for groups                           │
+│        ✅ Only User.Read (delegated) — any user can consent            │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+The `groupMembershipClaims` manifest setting tells Entra ID to embed the user's security group Object IDs as a `groups` array in the ID token. This is a **tenant-level app configuration**, not a permission — so it doesn't require admin consent at login time. Any user in the tenant can sign in and the token will automatically contain their groups.
+
+**ID token example with groups claim:**
+```json
+{
+  "aud": "59b61f80-...",
+  "name": "John Doe",
+  "oid": "abc123...",
+  "groups": [
+    "0828d1e1-a0ba-4a6d-b4e8-8106fca0a281",
+    "170f33af-f694-469e-8a33-6a9b5d115d3d"
+  ]
+}
+```
+
+These group IDs are then matched against the `acl_group_ids` field in the search index using an OData filter:
+
+```
+search.ismatch('0828d1e1-...', 'acl_group_ids') or search.ismatch('170f33af-...', 'acl_group_ids')
+```
+
+> **Note:** If the user belongs to more than 200 groups, Entra ID omits the `groups` claim and includes a `_claim_names` field instead (the "groups overage" scenario). In that case, the app falls back to calling Graph `/me/memberOf` — which would then require the `GroupMember.Read.All` scope and admin consent. For most organizations this limit is not hit.
+
+#### Running the Demo
 
 ```bash
 cd demo
@@ -340,11 +447,6 @@ pip install -r requirements.txt
 python app.py
 # Open http://localhost:5000
 ```
-
-**Prerequisites:**
-- App registration with `groupMembershipClaims: "SecurityGroup"` in its manifest
-- Redirect URI `http://localhost:5000/auth/callback` registered
-- Set `DEMO_CLIENT_ID`, `DEMO_CLIENT_SECRET`, `DEMO_TENANT_ID` in `.env`
 
 For headless CLI testing without a browser:
 ```bash
