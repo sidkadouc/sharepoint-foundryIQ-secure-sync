@@ -372,17 +372,38 @@ That's it — only **one delegated permission** that any user can consent to the
 
 **Step 4: Enable group claims in the token**
 
-This is the key configuration that avoids admin consent. Set `groupMembershipClaims` in the app manifest so Entra ID includes the user's security group Object IDs directly in the ID token:
+This is the key configuration that avoids admin consent. Set `groupMembershipClaims` in the app manifest so Entra ID includes the user's security group Object IDs directly in the ID token.
+
+**Option A — Azure Portal (Manifest editor):**
+
+1. Go to **Azure Portal → Microsoft Entra ID → App registrations**
+2. Select your app (e.g. "SharePoint Search ACL Demo")
+3. In the left menu, click **Manifest**
+4. Find the `"groupMembershipClaims"` property (it defaults to `null`)
+5. Change it to `"SecurityGroup"`:
+   ```json
+   "groupMembershipClaims": "SecurityGroup",
+   ```
+6. Click **Save** at the top of the Manifest editor
+
+**Option B — Azure Portal (Token configuration UI):**
+
+1. Go to **App registrations → your app → Token configuration**
+2. Click **+ Add groups claim**
+3. In the dialog, check **Security groups**
+4. Under "Customize token properties by type", for **ID** tokens select **Group ID**
+5. Click **Add**
+
+**Option C — Azure CLI:**
 
 ```bash
-# Via Azure CLI
 az rest --method PATCH \
   --uri "https://graph.microsoft.com/v1.0/applications(appId='<app-id>')" \
   --headers "Content-Type=application/json" \
   --body '{"groupMembershipClaims": "SecurityGroup"}'
 ```
 
-Or via the Azure Portal: **App registrations → your app → Manifest → set `"groupMembershipClaims": "SecurityGroup"`**
+> **Verify it worked:** Go to **App registrations → your app → Manifest** and confirm `"groupMembershipClaims": "SecurityGroup"` is set. You can also check **Token configuration** — it should show a Groups claim configured for Security groups.
 
 **Step 5: Set environment variables**
 
