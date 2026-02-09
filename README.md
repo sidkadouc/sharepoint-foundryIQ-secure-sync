@@ -46,6 +46,7 @@ This solution synchronizes files from SharePoint Online to Azure Blob Storage an
 |-----------|-------------|
 | `sync/` | SharePoint to Blob sync job (Python) including deployment scripts |
 | `ai-search/` | Azure AI Search deployment artifacts (index, indexer, skillset) |
+| `demo/` | Web app demo: Entra ID login with ACL-filtered search |
 | `tests/` | Search testing scripts |
 
 ## Quick Start
@@ -324,6 +325,32 @@ filter = f"search.ismatch('{user_id}', 'acl_user_ids') or {group_filter}"
 results = client.search(query="...", filter=filter)
 ```
 
+### Demo App
+
+The `demo/` directory contains a Flask web app that demonstrates the full end-to-end flow:
+
+1. User signs in via Entra ID (MSAL authorization code flow)
+2. Group IDs are extracted from the ID token `groups` claim
+3. Search queries are filtered by the user's group memberships
+4. Users only see documents they have access to
+
+```bash
+cd demo
+pip install -r requirements.txt
+python app.py
+# Open http://localhost:5000
+```
+
+**Prerequisites:**
+- App registration with `groupMembershipClaims: "SecurityGroup"` in its manifest
+- Redirect URI `http://localhost:5000/auth/callback` registered
+- Set `DEMO_CLIENT_ID`, `DEMO_CLIENT_SECRET`, `DEMO_TENANT_ID` in `.env`
+
+For headless CLI testing without a browser:
+```bash
+python test_obo_flow.py --query "*"
+```
+
 ## Running in Production
 
 ### Docker
@@ -405,6 +432,10 @@ az containerapp job create \
 │   ├── indexer.json            # Indexer with field mappings
 │   ├── skillset.json           # AI enrichment pipeline
 │   └── .env.example            # Environment template
+├── demo/                       # ACL search demo app
+│   ├── app.py                  # Flask web app (Entra login + ACL search)
+│   ├── test_obo_flow.py        # Headless CLI test for ACL flow
+│   └── requirements.txt        # Python dependencies
 ├── tests/                      # Testing
 │   ├── test_search.py          # AI Search testing script
 │   └── .env.example            # Environment template
