@@ -21,11 +21,19 @@ import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Optional, AsyncIterator
+from typing import List, Dict, Optional, AsyncIterator, Tuple
 
 import structlog
 from azure.identity.aio import ClientSecretCredential, DefaultAzureCredential
 from msgraph import GraphServiceClient
+
+from purview_client import (
+    PurviewClient,
+    FileProtectionInfo,
+    ProtectionStatus,
+    merge_permissions_for_search,
+    is_purview_sync_enabled,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +53,11 @@ METADATA_PERMISSIONS_HASH = "permissions_hash"  # Hash of permissions for delta 
 # See: https://learn.microsoft.com/en-us/azure/search/search-security-document-level-access-control
 METADATA_ACL_USER_IDS = "user_ids"     # JSON array of user object IDs (Entra IDs)
 METADATA_ACL_GROUP_IDS = "group_ids"   # JSON array of group object IDs (Entra IDs)
+
+# Purview/RMS metadata keys (populated when SYNC_PURVIEW_PROTECTION=true)
+METADATA_PURVIEW_STATUS = "purview_protection_status"     # "unprotected", "protected", "label_only"
+METADATA_PURVIEW_LABEL_NAME = "purview_label_name"        # Sensitivity label display name
+METADATA_PURVIEW_IS_ENCRYPTED = "purview_is_encrypted"    # "true" or "false"
 
 
 @dataclass
@@ -92,33 +105,46 @@ class FilePermissions:
     permissions: List[SharePointPermission] = field(default_factory=list)
     synced_at: Optional[datetime] = None
 
-    def to_metadata(self) -> Dict[str, str]:
+    def to_metadata(
+        self, 
+        protection_info: Optional["FileProtectionInfo"] = None
+    ) -> Dict[str, str]:
         """
         Convert permissions to blob metadata format.
         
+        When protection_info is provided (file is RMS-protected with Purview),
+        the effective ACLs are the INTERSECTION of SharePoint permissions and
+        RMS permissions. This ensures that AI Search security trimming respects
+        both permission layers.
+        
+        Args:
+            protection_info: Optional Purview/RMS protection info. When provided,
+                ACL user/group IDs will be the intersection of SP and RMS permissions.
+        
         Returns:
             Dictionary of metadata key-value pairs (values must be strings)
-            
-        Note:
-            This method produces ACL-compatible metadata for Azure AI Search:
-            - acl_user_ids: Comma-separated list of Entra user object IDs
-            - acl_group_ids: Comma-separated list of Entra group object IDs
-            
-            Special values supported by Azure AI Search:
-            - "all": Any user can access the document
-            - "none": No user can access (must match other ACL type)
         """
         permissions_json = json.dumps([p.to_dict() for p in self.permissions])
         
-        # Extract user and group IDs for Azure AI Search ACL enforcement
-        user_ids = self._extract_user_ids()
-        group_ids = self._extract_group_ids()
+        # Extract user and group IDs from SharePoint permissions
+        sp_user_ids = self._extract_user_ids()
+        sp_group_ids = self._extract_group_ids()
+        
+        # Merge with Purview/RMS permissions if available
+        # This computes the intersection: user must be in BOTH SP and RMS
+        effective_user_ids, effective_group_ids = merge_permissions_for_search(
+            sp_user_ids, sp_group_ids, protection_info
+        )
         
         metadata = {
             METADATA_PERMISSIONS: permissions_json,
             METADATA_PERMISSIONS_SYNCED_AT: self.synced_at.isoformat() if self.synced_at else datetime.utcnow().isoformat(),
             METADATA_PERMISSIONS_HASH: self.compute_permissions_hash(),
         }
+        
+        # Add Purview/RMS metadata if protection info is available
+        if protection_info:
+            metadata.update(protection_info.to_metadata())
         
         # Add ACL fields - store as pipe-delimited strings for Azure AI Search skillset compatibility
         # The indexer will read these as "metadata_user_ids" and "metadata_group_ids"
@@ -129,14 +155,14 @@ class FilePermissions:
         PLACEHOLDER_NO_USERS = "00000000-0000-0000-0000-000000000000"
         PLACEHOLDER_NO_GROUPS = "00000000-0000-0000-0000-000000000001"
         
-        if user_ids:
-            metadata[METADATA_ACL_USER_IDS] = "|".join(user_ids)
+        if effective_user_ids:
+            metadata[METADATA_ACL_USER_IDS] = "|".join(effective_user_ids)
         else:
             # No specific users - use placeholder (access controlled by groups)
             metadata[METADATA_ACL_USER_IDS] = PLACEHOLDER_NO_USERS
             
-        if group_ids:
-            metadata[METADATA_ACL_GROUP_IDS] = "|".join(group_ids)
+        if effective_group_ids:
+            metadata[METADATA_ACL_GROUP_IDS] = "|".join(effective_group_ids)
         else:
             # No specific groups - use placeholder (access controlled by users)
             metadata[METADATA_ACL_GROUP_IDS] = PLACEHOLDER_NO_GROUPS

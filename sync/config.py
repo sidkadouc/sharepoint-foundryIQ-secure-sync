@@ -36,6 +36,9 @@ class Config:
     permissions_delta_mode: PermissionsDeltaMode  # "hash" or "graph_delta"
     delta_token_storage_path: str  # Path to store delta tokens for graph_delta mode
     
+    # Purview/RMS protection settings
+    sync_purview_protection: bool  # If True, detect and sync Purview sensitivity labels + RMS permissions
+    
     # Resolved IDs (populated at runtime) - these have defaults so must come last
     sharepoint_site_id: str = ""
     sharepoint_drive_id: str = ""
@@ -68,6 +71,9 @@ class Config:
             # Permissions delta mode
             permissions_delta_mode=permissions_delta_mode,
             delta_token_storage_path=os.environ.get("DELTA_TOKEN_STORAGE_PATH", ".delta_tokens"),
+            
+            # Purview/RMS protection
+            sync_purview_protection=os.environ.get("SYNC_PURVIEW_PROTECTION", "false").lower() == "true",
         )
     
     def validate(self) -> None:

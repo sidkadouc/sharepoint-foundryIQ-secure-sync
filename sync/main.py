@@ -29,6 +29,12 @@ from permissions_sync import (
     should_sync_permissions,
     GraphDeltaPermissionsClient,
 )
+from purview_client import (
+    PurviewClient,
+    is_purview_sync_enabled,
+    FileProtectionInfo,
+    ProtectionStatus,
+)
 
 # Configure standard logging to output to console
 logging.basicConfig(
@@ -84,6 +90,10 @@ class SyncStats:
     permissions_synced: int = 0
     permissions_unchanged: int = 0  # Permissions skipped due to no changes (delta)
     permissions_failed: int = 0
+    purview_protected: int = 0       # Files with RMS encryption (Purview)
+    purview_label_only: int = 0      # Files with sensitivity label but no encryption
+    purview_unprotected: int = 0     # Files with no sensitivity label
+    purview_failed: int = 0          # Files where Purview detection failed
 
 
 async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
@@ -98,6 +108,7 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
     """
     stats = SyncStats()
     sync_permissions = is_permissions_sync_enabled()
+    sync_purview = config.sync_purview_protection
     
     await logger.ainfo("Starting SharePoint to Blob sync",
         site_url=config.sharepoint_site_url,
@@ -107,6 +118,7 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
         container=config.container_name,
         dry_run=config.dry_run,
         sync_permissions=sync_permissions,
+        sync_purview_protection=sync_purview,
         delta_mode=config.permissions_delta_mode.value
     )
     
@@ -376,60 +388,100 @@ async def _sync_permissions_hash_mode(
     
     Computes a hash of permissions and only syncs if the hash has changed.
     This is the default mode and works well for most scenarios.
+    
+    When SYNC_PURVIEW_PROTECTION=true, also detects Purview sensitivity labels
+    and RMS encryption, merging those permissions with SharePoint permissions
+    for security-trimmed AI Search indexing.
     """
+    sync_purview = config.sync_purview_protection
+    
     await logger.ainfo(
         "Syncing SharePoint permissions using HASH-based delta detection",
-        mode="hash"
+        mode="hash",
+        sync_purview=sync_purview,
     )
     
-    async with PermissionsClient(drive_id) as perm_client:
-        # Re-scan files to get their permissions
-        async for sp_file in sp_client.list_files(config.sharepoint_folder_path):
-            blob_name = blob_client._get_blob_name(sp_file.path)
-            
-            try:
-                # Get permissions from SharePoint
-                file_permissions = await perm_client.get_file_permissions(
-                    file_id=sp_file.id,
-                    file_path=sp_file.path
-                )
+    # Optionally create Purview client for RMS protection detection
+    purview_client = None
+    if sync_purview:
+        purview_client = PurviewClient(drive_id)
+        await purview_client.__aenter__()
+    
+    try:
+        async with PermissionsClient(drive_id) as perm_client:
+            # Re-scan files to get their permissions
+            async for sp_file in sp_client.list_files(config.sharepoint_folder_path):
+                blob_name = blob_client._get_blob_name(sp_file.path)
                 
-                if file_permissions.permissions:
-                    # Get existing blob metadata to check for permission changes
-                    existing_blob = existing_blobs.get(blob_name)
-                    existing_metadata = existing_blob.metadata if existing_blob else None
+                try:
+                    # Get permissions from SharePoint
+                    file_permissions = await perm_client.get_file_permissions(
+                        file_id=sp_file.id,
+                        file_path=sp_file.path
+                    )
                     
-                    # Check if permissions have actually changed (delta detection)
-                    if should_sync_permissions(file_permissions, existing_metadata):
-                        # Convert to metadata and update blob
-                        perm_metadata = file_permissions.to_metadata()
+                    # Get Purview/RMS protection info if enabled
+                    protection_info = None
+                    if purview_client:
+                        try:
+                            protection_info = await purview_client.get_file_protection(
+                                file_id=sp_file.id,
+                                file_path=sp_file.path,
+                            )
+                            # Track Purview stats
+                            if protection_info.status == ProtectionStatus.PROTECTED:
+                                stats.purview_protected += 1
+                            elif protection_info.status == ProtectionStatus.LABEL_ONLY:
+                                stats.purview_label_only += 1
+                            elif protection_info.status == ProtectionStatus.UNPROTECTED:
+                                stats.purview_unprotected += 1
+                        except Exception as e:
+                            await logger.aerror("Purview detection failed",
+                                file_path=sp_file.path, error=str(e))
+                            stats.purview_failed += 1
+                    
+                    if file_permissions.permissions:
+                        # Get existing blob metadata to check for permission changes
+                        existing_blob = existing_blobs.get(blob_name)
+                        existing_metadata = existing_blob.metadata if existing_blob else None
                         
-                        await logger.ainfo("Syncing permissions (changed)",
-                            file_path=sp_file.path,
-                            permission_count=len(file_permissions.permissions),
-                            summary=permissions_to_summary(file_permissions.permissions)
-                        )
-                        
-                        await blob_client.update_blob_metadata(
-                            blob_name=blob_name,
-                            additional_metadata=perm_metadata,
-                            dry_run=config.dry_run
-                        )
-                        
-                        stats.permissions_synced += 1
+                        # Check if permissions have actually changed (delta detection)
+                        if should_sync_permissions(file_permissions, existing_metadata):
+                            # Convert to metadata with Purview/RMS merge
+                            perm_metadata = file_permissions.to_metadata(
+                                protection_info=protection_info
+                            )
+                            
+                            await logger.ainfo("Syncing permissions (changed)",
+                                file_path=sp_file.path,
+                                permission_count=len(file_permissions.permissions),
+                                summary=permissions_to_summary(file_permissions.permissions),
+                                purview_status=protection_info.status.value if protection_info else "not_checked",
+                            )
+                            
+                            await blob_client.update_blob_metadata(
+                                blob_name=blob_name,
+                                additional_metadata=perm_metadata,
+                                dry_run=config.dry_run
+                            )
+                            
+                            stats.permissions_synced += 1
+                        else:
+                            # Permissions unchanged, skip update
+                            await logger.adebug("Permissions unchanged (skipped)", file_path=sp_file.path)
+                            stats.permissions_unchanged += 1
                     else:
-                        # Permissions unchanged, skip update
-                        await logger.adebug("Permissions unchanged (skipped)", file_path=sp_file.path)
-                        stats.permissions_unchanged += 1
-                else:
-                    await logger.adebug("No permissions to sync", file_path=sp_file.path)
-                    
-            except Exception as e:
-                await logger.aerror("Failed to sync permissions",
-                    file_path=sp_file.path,
-                    error=str(e)
-                )
-                stats.permissions_failed += 1
+                        await logger.adebug("No permissions to sync", file_path=sp_file.path)
+                        
+                except Exception as e:
+                    await logger.aerror("Failed to sync permissions",
+                        file_path=sp_file.path,
+                        error=str(e)
+                    )
+                    stats.permissions_failed += 1
+    finally:
+        if purview_client:
+            await purview_client.__aexit__(None, None, None)
 
 
 async def _sync_permissions_graph_delta(
@@ -451,11 +503,17 @@ async def _sync_permissions_graph_delta(
     queries items that have changed since the last sync.
     
     Note: Requires Sites.FullControl.All permission for proper operation.
+    
+    When SYNC_PURVIEW_PROTECTION=true, also detects Purview sensitivity labels
+    and RMS encryption, merging those permissions with SharePoint permissions.
     """
+    sync_purview = config.sync_purview_protection
+    
     await logger.ainfo(
         "Syncing SharePoint permissions using GRAPH DELTA API",
         mode="graph_delta",
-        token_storage_path=config.delta_token_storage_path
+        token_storage_path=config.delta_token_storage_path,
+        sync_purview=sync_purview,
     )
     
     # Initialize delta token storage and client
@@ -467,73 +525,105 @@ async def _sync_permissions_graph_delta(
     async for sp_file in sp_client.list_files(config.sharepoint_folder_path):
         file_id_to_info[sp_file.id] = sp_file
     await logger.ainfo("File ID index built", file_count=len(file_id_to_info))
-    
-    async with GraphDeltaPermissionsClient(drive_id, token_storage) as delta_client:
-        async with PermissionsClient(drive_id) as perm_client:
-            items_to_sync = []
-            
-            # Collect items with permission changes from delta API
-            async for changed_item in delta_client.get_items_with_permission_changes():
-                items_to_sync.append(changed_item)
-            
-            await logger.ainfo(
-                "Delta query completed",
-                items_to_sync=len(items_to_sync)
-            )
-            
-            # Process each item that has permission changes
-            for changed_item in items_to_sync:
-                # Look up the file info
-                sp_file = file_id_to_info.get(changed_item.item_id)
+
+    # Optionally create Purview client for RMS protection detection
+    purview_client = None
+    if sync_purview:
+        purview_client = PurviewClient(drive_id)
+        await purview_client.__aenter__()
+
+    try:
+        async with GraphDeltaPermissionsClient(drive_id, token_storage) as delta_client:
+            async with PermissionsClient(drive_id) as perm_client:
+                items_to_sync = []
                 
-                if not sp_file:
-                    # Item might be in a subfolder we haven't indexed, skip it
-                    await logger.adebug(
-                        "Skipping item not in file index",
-                        item_id=changed_item.item_id,
-                        path=changed_item.path
-                    )
-                    continue
+                # Collect items with permission changes from delta API
+                async for changed_item in delta_client.get_items_with_permission_changes():
+                    items_to_sync.append(changed_item)
                 
-                blob_name = blob_client._get_blob_name(sp_file.path)
+                await logger.ainfo(
+                    "Delta query completed",
+                    items_to_sync=len(items_to_sync)
+                )
                 
-                try:
-                    # Get current permissions from SharePoint
-                    file_permissions = await perm_client.get_file_permissions(
-                        file_id=sp_file.id,
-                        file_path=sp_file.path
-                    )
+                # Process each item that has permission changes
+                for changed_item in items_to_sync:
+                    # Look up the file info
+                    sp_file = file_id_to_info.get(changed_item.item_id)
                     
-                    if file_permissions.permissions:
-                        # Convert to metadata and update blob
-                        perm_metadata = file_permissions.to_metadata()
+                    if not sp_file:
+                        # Item might be in a subfolder we haven't indexed, skip it
+                        await logger.adebug(
+                            "Skipping item not in file index",
+                            item_id=changed_item.item_id,
+                            path=changed_item.path
+                        )
+                        continue
+                    
+                    blob_name = blob_client._get_blob_name(sp_file.path)
+                    
+                    try:
+                        # Get current permissions from SharePoint
+                        file_permissions = await perm_client.get_file_permissions(
+                            file_id=sp_file.id,
+                            file_path=sp_file.path
+                        )
                         
-                        await logger.ainfo("Syncing permissions (delta changed)",
+                        # Get Purview/RMS protection info if enabled
+                        protection_info = None
+                        if purview_client:
+                            try:
+                                protection_info = await purview_client.get_file_protection(
+                                    file_id=sp_file.id,
+                                    file_path=sp_file.path,
+                                )
+                                if protection_info.status == ProtectionStatus.PROTECTED:
+                                    stats.purview_protected += 1
+                                elif protection_info.status == ProtectionStatus.LABEL_ONLY:
+                                    stats.purview_label_only += 1
+                                elif protection_info.status == ProtectionStatus.UNPROTECTED:
+                                    stats.purview_unprotected += 1
+                            except Exception as e:
+                                await logger.aerror("Purview detection failed",
+                                    file_path=sp_file.path, error=str(e))
+                                stats.purview_failed += 1
+                        
+                        if file_permissions.permissions:
+                            # Convert to metadata with Purview/RMS merge
+                            perm_metadata = file_permissions.to_metadata(
+                                protection_info=protection_info
+                            )
+                            
+                            await logger.ainfo("Syncing permissions (delta changed)",
+                                file_path=sp_file.path,
+                                permission_count=len(file_permissions.permissions),
+                                summary=permissions_to_summary(file_permissions.permissions),
+                                sharing_changed=changed_item.sharing_changed,
+                                purview_status=protection_info.status.value if protection_info else "not_checked",
+                            )
+                            
+                            await blob_client.update_blob_metadata(
+                                blob_name=blob_name,
+                                additional_metadata=perm_metadata,
+                                dry_run=config.dry_run
+                            )
+                            
+                            stats.permissions_synced += 1
+                        else:
+                            await logger.adebug("No permissions to sync", file_path=sp_file.path)
+                            
+                    except Exception as e:
+                        await logger.aerror("Failed to sync permissions",
                             file_path=sp_file.path,
-                            permission_count=len(file_permissions.permissions),
-                            summary=permissions_to_summary(file_permissions.permissions),
-                            sharing_changed=changed_item.sharing_changed
+                            error=str(e)
                         )
-                        
-                        await blob_client.update_blob_metadata(
-                            blob_name=blob_name,
-                            additional_metadata=perm_metadata,
-                            dry_run=config.dry_run
-                        )
-                        
-                        stats.permissions_synced += 1
-                    else:
-                        await logger.adebug("No permissions to sync", file_path=sp_file.path)
-                        
-                except Exception as e:
-                    await logger.aerror("Failed to sync permissions",
-                        file_path=sp_file.path,
-                        error=str(e)
-                    )
-                    stats.permissions_failed += 1
-            
-            # Calculate unchanged (items not in delta = unchanged)
-            stats.permissions_unchanged = len(file_id_to_info) - len(items_to_sync)
+                        stats.permissions_failed += 1
+                
+                # Calculate unchanged (items not in delta = unchanged)
+                stats.permissions_unchanged = len(file_id_to_info) - len(items_to_sync)
+    finally:
+        if purview_client:
+            await purview_client.__aexit__(None, None, None)
 
 
 async def main() -> int:
@@ -557,7 +647,11 @@ async def main() -> int:
             bytes_transferred=stats.bytes_transferred,
             permissions_synced=stats.permissions_synced,
             permissions_unchanged=stats.permissions_unchanged,
-            permissions_failed=stats.permissions_failed
+            permissions_failed=stats.permissions_failed,
+            purview_protected=stats.purview_protected,
+            purview_label_only=stats.purview_label_only,
+            purview_unprotected=stats.purview_unprotected,
+            purview_failed=stats.purview_failed,
         )
         
         # Return non-zero exit code if there were failures
