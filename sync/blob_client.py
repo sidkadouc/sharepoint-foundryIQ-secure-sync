@@ -49,8 +49,13 @@ def _get_credential():
             client_secret=storage_client_secret
         )
     elif os.environ.get("IDENTITY_ENDPOINT"):
+        # In Azure (Function / ACA), use ManagedIdentityCredential directly.
+        # DefaultAzureCredential would try EnvironmentCredential first, which
+        # picks up the SharePoint app registration (AZURE_CLIENT_ID etc.) and
+        # fails because that identity lacks Storage RBAC.
         logger.info("Using Managed Identity authentication for Blob Storage")
-        return DefaultAzureCredential()
+        from azure.identity.aio import ManagedIdentityCredential
+        return ManagedIdentityCredential()
     else:
         # Use Azure CLI credential directly to avoid picking up SharePoint App Registration
         # environment variables (AZURE_CLIENT_ID, etc.) which are for a different tenant

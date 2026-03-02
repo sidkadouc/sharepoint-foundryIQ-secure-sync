@@ -102,7 +102,9 @@ This trades a broader permission scope for reduced API calls.
 | `permissions_sync.py` | SharePoint permission export |
 | `Dockerfile` | Container build file |
 | `requirements.txt` | Python dependencies |
-| `deploy/` | Azure Function deployment ([README](deploy/README.md)) |
+| `deploy/` | Azure Function + ACA Job deployment scripts ([README](deploy/README.md)) |
+| `host.json` | Azure Functions host configuration |
+| `sharepoint_sync_timer/` | Timer-trigger wrapper that executes `main.py` |
 
 ## Usage
 
@@ -131,7 +133,12 @@ python main.py
 
 ## Authentication
 
-Uses `DefaultAzureCredential`. Set `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` for app registration, or just `az login` for CLI auth.
+Credentials are resolved per service:
+
+- **SharePoint (Graph API)**: Uses `ClientSecretCredential` when `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` are set (app registration with `Sites.Selected` or `Sites.Read.All`), otherwise `DefaultAzureCredential`.
+- **Blob Storage**: Uses `ManagedIdentityCredential` when running in Azure (Function / ACA — detected via `IDENTITY_ENDPOINT`), `AzureCliCredential` locally, or explicit storage credentials via `AZURE_STORAGE_CLIENT_ID` / `AZURE_STORAGE_CLIENT_SECRET` / `AZURE_STORAGE_TENANT_ID`.
+
+This separation ensures the SharePoint app registration credentials (env vars) don't interfere with storage RBAC, which is assigned to the workload's managed identity.
 
 ### SharePoint Permissions (Sites.Selected)
 
@@ -157,6 +164,20 @@ az role assignment create \
 docker build -t sharepoint-sync:latest .
 docker run --env-file .env sharepoint-sync:latest
 ```
+
+## Run as Cloud Job
+
+The same `main.py` runs in two schedulers:
+
+- **Azure Function** (timer trigger) — see [deploy/README.md](deploy/README.md)
+- **Azure Container Apps Job** (scheduled/manual)
+
+Deploy scripts:
+
+| Script | Purpose |
+|--------|---------|
+| `deploy/deploy-new.sh` | Create new test resources |
+| `deploy/deploy-existing.sh` | Deploy code to existing resources |
 
 ## Delta Token
 

@@ -1,26 +1,57 @@
-# Sync — Azure Function Deployment
+# Sync Job Deployment
 
-Deploy the SharePoint sync job as an Azure Function with a daily timer trigger and managed identity.
+Deploy `sync/main.py` as an **Azure Function** (timer trigger) or **Azure Container Apps Job** (scheduled).
 
-## What Gets Created
+## Scripts
 
-- Azure Function App (Python 3.11, Linux)
-- Timer trigger (daily at 2 AM UTC by default)
-- System-assigned managed identity
+| Script | Purpose |
+|--------|---------|
+| `deploy-new.sh` | Create new Function App and/or ACA Job (timestamped names for testing) |
+| `deploy-existing.sh` | Deploy code + config to an existing Function App and/or ACA Job |
+
+Both scripts use `TARGET=func|aca|both` (default: `both`).
 
 ## Quick Start
 
-```bash
-# Configure
-cp .env.example .env   # edit with your values
+### 1) Create new test resources
 
-# Login & deploy
+```bash
+# Login
 az login
-chmod +x deploy-function.sh
-./deploy-function.sh
+
+# Function only
+TARGET=func ./deploy-new.sh
+
+# ACA only (needs an image source)
+ACR_NAME=myacr TARGET=aca ./deploy-new.sh
+
+# Both
+ACR_NAME=myacr TARGET=both ./deploy-new.sh
+```
+
+### 2) Deploy to existing resources
+
+```bash
+# Function only
+FUNCTION_APP_NAME=func-sharepoint-sync TARGET=func ./deploy-existing.sh
+
+# ACA only
+ACA_JOB_NAME=acaj-sharepoint-sync ACR_NAME=myacr TARGET=aca ./deploy-existing.sh
+
+# Both
+FUNCTION_APP_NAME=func-sharepoint-sync ACA_JOB_NAME=acaj-sharepoint-sync \
+  ACR_NAME=myacr TARGET=both ./deploy-existing.sh
+```
+
+### Validate without deploying
+
+```bash
+VALIDATE_ONLY=true TARGET=both ./deploy-new.sh
 ```
 
 ## Configuration
+
+Set these in `.env` (root or `sync/`) or as environment variables.
 
 ### Required
 
@@ -28,8 +59,8 @@ chmod +x deploy-function.sh
 |----------|-------------|
 | `SUBSCRIPTION_ID` | Azure subscription ID |
 | `SHAREPOINT_SITE_URL` | SharePoint site URL |
-| `AZURE_STORAGE_ACCOUNT_NAME` | Storage account name |
-| `AZURE_BLOB_CONTAINER_NAME` | Target container |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Target storage account |
+| `AZURE_BLOB_CONTAINER_NAME` | Target blob container |
 
 ### Optional
 
@@ -37,41 +68,47 @@ chmod +x deploy-function.sh
 |----------|---------|-------------|
 | `RESOURCE_GROUP` | `rg-sharepoint-sync` | Resource group |
 | `LOCATION` | `francecentral` | Azure region |
-| `FUNCTION_APP_NAME` | `func-sharepoint-sync` | Function App name |
-| `TIMER_SCHEDULE` | `0 0 2 * * *` | CRON (2 AM daily) |
-| `DELETE_ORPHANED_BLOBS` | `true` | Delete removed blobs |
-| `SYNC_PERMISSIONS` | `true` | Sync ACL metadata |
+| `TIMER_SCHEDULE` | `0 0 2 * * *` | Cron schedule (6-field for Function, auto-converted to 5-field for ACA) |
+| `DELETE_ORPHANED_BLOBS` | `false` | Delete blobs removed from SharePoint |
+| `SYNC_PERMISSIONS` | `false` | Sync ACL metadata |
+
+### ACA-specific
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ACR_NAME` | — | ACR registry name (builds image via ACR Tasks) |
+| `IMAGE_NAME` | — | Pre-built image (skip ACR build) |
+| `ACA_JOB_TRIGGER_TYPE` | `Schedule` | `Schedule` or `Manual` |
 
 ## Post-Deployment
 
-### Grant SharePoint Access
+### Grant SharePoint access to the managed identity
 
-The managed identity needs access to read SharePoint. Choose one:
+The managed identity needs Microsoft Graph permissions to read SharePoint:
 
-**Option A — Sites.Read.All (admin consent):**
 ```bash
-OBJECT_ID=$(az functionapp identity show --name func-sharepoint-sync --resource-group rg-sharepoint-sync --query principalId -o tsv)
-az ad app permission admin-consent --id $OBJECT_ID
+# Get the principal ID
+PRINCIPAL_ID=$(az functionapp identity show \
+  --name <app-name> --resource-group <rg> --query principalId -o tsv)
+
+# Option A: Sites.Read.All (requires admin consent)
+# Option B: Sites.Selected (granular, recommended)
 ```
 
-**Option B — Sites.Selected (granular, recommended):**
-Use an app registration with `Sites.Selected` and grant access to the specific site.
+### Verify storage RBAC
 
-### Storage Access
-
-The script auto-assigns `Storage Blob Data Contributor`. Verify:
 ```bash
-az role assignment list --assignee <principal-id> --all
+az role assignment list --assignee <principal-id> --all -o table
 ```
 
 ## Monitoring
 
 ```bash
-# Tail logs
-az functionapp log tail --name func-sharepoint-sync --resource-group rg-sharepoint-sync
+# Function logs
+az functionapp log tail --name <name> --resource-group <rg>
 
-# Check status
-az functionapp show --name func-sharepoint-sync --resource-group rg-sharepoint-sync --query state
+# ACA job executions
+az containerapp job execution list --name <name> --resource-group <rg> -o table
 ```
 
 ## Cleanup
