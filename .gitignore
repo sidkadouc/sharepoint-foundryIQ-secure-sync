@@ -39,3 +39,9 @@ ENV/
 
 # Generated files
 deploy/function-app/
+
+# .NET build artifacts
+bin/
+obj/
+.publish/
+*.user

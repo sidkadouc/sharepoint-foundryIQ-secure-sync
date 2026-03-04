@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SharePointSync.Core/SharePointSync.Core.csproj" />
+    <Project Path="src/SharePointSync.Job/SharePointSync.Job.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SharePointSync.Tests/SharePointSync.Tests.csproj" />
+  </Folder>
+</Solution>

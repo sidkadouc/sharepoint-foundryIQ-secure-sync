@@ -1,0 +1,15 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "SYNC_SCHEDULE": "0 */10 * * * *",
+    "SHAREPOINT_SITE_HOSTNAME": "",
+    "SHAREPOINT_SITE_PATH": "",
+    "STORAGE_ACCOUNT_NAME": "",
+    "STORAGE_CONTAINER": "sharepoint-sync",
+    "AZURE_TENANT_ID": "",
+    "AZURE_CLIENT_ID": "",
+    "AZURE_CLIENT_SECRET": ""
+  }
+}

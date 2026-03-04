@@ -15,7 +15,8 @@ SharePoint Online ──▶ Sync Job (Python) ──▶ Azure Blob Storage ─�
 
 | Directory | Description | README |
 |-----------|-------------|--------|
-| [sync/](sync/) | SharePoint → Blob sync job (delta API, permissions) | [sync/README.md](sync/README.md) |
+| [sync/](sync/) | SharePoint → Blob sync job — Python (delta API, permissions) | [sync/README.md](sync/README.md) |
+| [sync-dotnet/](sync-dotnet/) | SharePoint → Blob sync job — C# .NET (same features) | [sync-dotnet/README.md](sync-dotnet/README.md) |
 | [ai-search/](ai-search/) | Search index, skillset, indexer deployment | [ai-search/README.md](ai-search/README.md) |
 | [demo/](demo/) | Flask web app — Entra ID login + ACL-filtered search | [demo/README.md](demo/README.md) |
 | [tests/](tests/) | Search verification scripts | [tests/README.md](tests/README.md) |
@@ -43,10 +44,21 @@ This syncs files, deploys search components, waits for indexing, and runs tests.
 ### Run Individual Components
 
 ```bash
-cd sync && python main.py          # Sync only
-cd ai-search && ./script.ps1 ...   # Deploy search only
-cd demo && python app.py            # Run demo app
-cd tests && python test_search.py   # Run tests
+# Python sync
+cd sync && python main.py
+
+# .NET sync (build first, then run DLL directly)
+cd sync-dotnet && dotnet build
+dotnet src/SharePointSync.Job/bin/Debug/net10.0/SharePointSync.Job.dll
+
+# Deploy search
+cd ai-search && ./script.ps1 ...
+
+# Demo app
+cd demo && python app.py
+
+# Tests
+cd tests && python test_search.py
 ```
 
 ## Configuration
@@ -72,26 +84,21 @@ Create a `.env` file in the root (see each component's README for full details):
 
 ## Production Deployment
 
-**Docker:**
+Both `sync/` (Python) and `sync-dotnet/` (C#) include deploy scripts for Azure Function App and Azure Container Apps Job. Pick one implementation.
+
+**Docker (Python):**
 ```bash
-docker build -t sharepoint-sync:latest .
+cd sync && docker build -t sharepoint-sync:latest .
 docker run --env-file .env sharepoint-sync:latest
 ```
 
-**Azure Function App:** See [sync/deploy/README.md](sync/deploy/README.md)
-
-**Azure Container Apps Job:**
+**Docker (.NET):**
 ```bash
-az containerapp job create \
-  --name sharepoint-sync-job \
-  --resource-group your-rg \
-  --environment your-env \
-  --image your-acr.azurecr.io/sharepoint-sync:latest \
-  --trigger-type Schedule \
-  --cron-expression "0 0 * * *" \
-  --cpu 0.5 --memory 1Gi \
-  --mi-system-assigned
+cd sync-dotnet && docker build -t sharepoint-sync-dotnet:latest .
+docker run --env-file ../.env sharepoint-sync-dotnet:latest
 ```
+
+**Azure Function App or ACA Job:** See [sync/deploy/README.md](sync/deploy/README.md) or [sync-dotnet/deploy/README.md](sync-dotnet/deploy/README.md)
 
 ## License
 
