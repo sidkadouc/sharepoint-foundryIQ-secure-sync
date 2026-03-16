@@ -19,6 +19,14 @@ SharePoint Online ──▶ Sync Job (Python) ──▶ Azure Blob Storage ─�
 | [ai-search/](ai-search/) | Search index, skillset, indexer deployment | [ai-search/README.md](ai-search/README.md) |
 | [demo/](demo/) | Flask web app — Entra ID login + ACL-filtered search | [demo/README.md](demo/README.md) |
 | [tests/](tests/) | Search verification scripts | [tests/README.md](tests/README.md) |
+| [docs/](docs/) | Architecture & deep-dives (Purview/RMS, Agentic Retrieval) | See below |
+
+### Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Purview / RMS Explained](docs/purview-rms-explained.md) | How RMS encryption works, dual-layer ACLs, `Sites.Selected` implications |
+| [Agentic Retrieval & Foundry IQ](docs/agentic-retrieval-foundry-iq.md) | Cross-site enterprise search with Agentic Retrieval, Foundry IQ integration, real-world scenarios |
 
 ## Quick Start
 
@@ -130,6 +138,19 @@ az containerapp job create \
   --cpu 0.5 --memory 1Gi \
   --mi-system-assigned
 ```
+
+## Next Step: Cross-Site Agentic Search with Foundry IQ
+
+This pipeline syncs and secures individual SharePoint sites. The natural evolution is **cross-site AI search** using [Azure AI Search Agentic Retrieval](https://learn.microsoft.com/azure/search/agentic-retrieval-overview) and [Foundry IQ](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/what-is-foundry-iq):
+
+- **Run this pipeline for N sites** → each becomes an indexed knowledge source
+- **Add remote SharePoint sources** → for real-time content from supplementary sites (no index needed)
+- **Create a Foundry IQ knowledge base** → combines all sources with LLM-powered query planning
+- **Connect to Foundry Agent Service** → agents decompose complex questions into parallel subqueries across all sites, with full permission enforcement
+
+Example: *"Compare the data retention policy from Legal with the GDPR checklist on Compliance and tell me if we have any gaps"* → the agent targets each site's knowledge source, merges results, and synthesizes a gap analysis — all respecting per-document ACLs and Purview sensitivity labels.
+
+See **[docs/agentic-retrieval-foundry-iq.md](docs/agentic-retrieval-foundry-iq.md)** for detailed architecture, 5 real-world enterprise scenarios, and getting-started code.
 
 ## License
 

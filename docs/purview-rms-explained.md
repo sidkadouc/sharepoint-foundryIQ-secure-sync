@@ -11,6 +11,7 @@
 - [Impact of `Sites.Selected` Permission](#impact-of-sitesselected-permission)
 - [Solutions for `Sites.Selected` + RMS](#solutions-for-sitesselected--rms)
 - [Pipeline Flow Summary](#pipeline-flow-summary)
+- [Native Purview Integration in AI Search (Preview)](#native-purview-sensitivity-label-integration-in-azure-ai-search-preview)
 - [Required App Permissions](#required-app-permissions)
 
 ---
@@ -323,6 +324,84 @@ Set-AipServiceSuperUserGroup -GroupObjectId $group.ObjectId
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## Native Purview Sensitivity Label Integration in Azure AI Search (Preview)
+
+> **Status**: Public preview as of API `2025-11-01-preview`. Not yet recommended for production workloads.
+
+Azure AI Search now offers a **native Purview sensitivity label integration** that extracts labels directly during indexing and enforces label-based access control at query time. This section explains how it works, how it compares to this pipeline's custom approach, and the recommended path forward.
+
+### How the Native Integration Works
+
+1. **Index creation**: Set `purviewEnabled: true` on the index (permanent, immutable).
+2. **Data source**: Set `indexerPermissionOptions: ["sensitivityLabel"]` to instruct the indexer to extract `metadata_sensitivity_label`.
+3. **Index field**: Add a `sensitivityLabel` field with `"sensitivityLabel": true` attribute.
+4. **Managed identity**: Grant `Content.SuperUser` and `UnifiedPolicy.Tenant.Read` roles to the search service's system-assigned managed identity (requires Global Admin / Privileged Role Admin).
+5. **Query time**: Pass the user's Entra token via `x-ms-query-source-authorization` header. AI Search evaluates the token against Purview policies and returns only documents where the user has `READ` usage rights.
+6. **Chunk propagation**: Sensitivity labels are mapped to sub-documents via index projections — the `sensitivityLabel` source field is set to `/document/metadata_sensitivity_label` so each chunk inherits the parent's label.
+
+### Supported Data Sources (Native)
+
+- Azure Blob Storage
+- Azure Data Lake Storage Gen2
+- SharePoint in Microsoft 365
+- Microsoft OneLake
+
+### Limitations of the Native Preview
+
+| Limitation | Impact |
+|-----------|--------|
+| `purviewEnabled` is permanent — cannot be disabled after index creation | Requires a new index if you change your mind |
+| Only RBAC authentication for document operations (API keys limited to schema retrieval) | Must migrate from API keys to RBAC |
+| Autocomplete and Suggest APIs disabled | UX features unavailable for Purview-enabled indexes |
+| Custom Web API skill, GenAI Prompt skill, Knowledge store, enrichment cache, debug sessions **do not process labeled documents** | OCR, custom transformations, and debugging are blocked for labeled files |
+| Single-tenant only — no guest accounts or cross-tenant queries | Multi-tenant scenarios not supported |
+| No portal experience — REST API / SDK only | Manual configuration required |
+
+### Comparison: Native vs. This Pipeline
+
+| Capability | Native Purview Preview | This Pipeline (Custom) |
+|-----------|----------------------|------------------------|
+| **Label extraction** | Automatic via indexer metadata | Custom `purview_client.py` using Graph API |
+| **Query-time enforcement** | Native — Entra token + Purview policies | OData filter on `acl_group_ids` at query time |
+| **RMS permission intersection** | **Not supported** — label-level only | **Full SP ∩ RMS intersection** — extracts RMS principals and computes intersection with SharePoint permissions |
+| **OCR on labeled documents** | **Blocked** — custom skills don't process labeled docs | **Works** — label extraction is decoupled from content processing |
+| **Custom chunking + embeddings on labeled docs** | **Blocked** — GenAI Prompt skill excluded | **Works** — full skillset (split, embed, OCR) |
+| **Chunk ACL propagation** | Via index projections (native) | Via blob metadata inheritance (custom) |
+| **API key support** | **Disabled** for document operations | Full API key + RBAC support |
+| **Index mutability** | `purviewEnabled` is permanent | No permanent index flags — can evolve freely |
+
+### Recommended Path: Hybrid Approach
+
+The optimal strategy combines both approaches:
+
+1. **Today (production)**: Use this pipeline's custom Purview extraction for full functionality:
+   - OCR, custom chunking, and vector embeddings work on all documents (including labeled ones)
+   - RMS permission intersection provides the strongest access control
+   - No permanent index constraints
+
+2. **When native feature GAs**: Evaluate adopting native label enforcement as a **complementary** layer:
+   - The `sensitivityLabel` field + `x-ms-query-source-authorization` header adds query-time label enforcement **on top of** the existing ACL filters
+   - Keep the custom RMS intersection for files with encryption (the native feature doesn't do this)
+   - Use the native feature for files with non-encrypting labels (classification-only)
+
+3. **Ultimate end-to-end Purview integration**:
+   ```
+   SharePoint ──► This Pipeline ──► Blob (with ACL metadata) ──► AI Search Index
+                                                                    │
+                                                          purviewEnabled: true
+                                                          sensitivityLabel field
+                                                                    │
+                                              Query Time: OData ACL filter (custom)
+                                                        + Purview label enforcement (native)
+                                                        = Strongest possible access control
+   ```
+
+### Key Takeaway
+
+The native preview **validates** this pipeline's approach — Microsoft built the same capability we implemented. But this pipeline goes **further**: the RMS permission intersection, OCR support for labeled documents, and unrestricted skillset access are capabilities the native preview does not yet offer. When the native feature matures, the two approaches will be complementary, not redundant.
 
 ---
 
