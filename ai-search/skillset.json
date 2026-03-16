@@ -129,6 +129,18 @@
           {
             "name": "acl_group_ids",
             "source": "/document/group_ids"
+          },
+          {
+            "name": "purview_label_name",
+            "source": "/document/purview_label_name"
+          },
+          {
+            "name": "purview_is_encrypted",
+            "source": "/document/purview_is_encrypted"
+          },
+          {
+            "name": "purview_protection_status",
+            "source": "/document/purview_protection_status"
           }
         ]
       }

@@ -91,6 +91,9 @@ class BlobStorageClient:
     # Blob name used to persist the Graph API delta token between runs
     DELTA_TOKEN_BLOB = ".sync-state/delta-token.json"
     
+    # Permissions hash for delta detection - set by permissions_sync.py
+    METADATA_PERMISSIONS_HASH = "permissions_hash"
+    
     def __init__(self, account_url: str, container_name: str, blob_prefix: str = ""):
         """
         Initialize the Blob Storage client.

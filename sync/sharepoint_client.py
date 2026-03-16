@@ -12,9 +12,10 @@ See: https://learn.microsoft.com/en-us/graph/api/driveitem-delta
 """
 
 import asyncio
+import json
 import os
 from datetime import datetime
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, Optional, Dict, List
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -25,6 +26,13 @@ from msgraph import GraphServiceClient
 from msgraph.generated.models.drive_item import DriveItem
 
 logger = structlog.get_logger(__name__)
+
+
+class FileChangeType(Enum):
+    """Type of change detected for a file."""
+    ADDED = "added"
+    MODIFIED = "modified"
+    DELETED = "deleted"
 
 
 def _get_credential():
@@ -68,6 +76,7 @@ class SharePointFile:
     last_modified: datetime
     download_url: str | None = None
     content_hash: str | None = None  # eTag or cTag for change detection
+    change_type: FileChangeType | None = None  # Only set when using delta mode
 
 
 class DeltaChangeType(Enum):
@@ -487,3 +496,237 @@ class SharePointClient:
 
         # Unknown item type – skip
         return None
+
+
+# =============================================================================
+# Graph Delta API Implementation for File Change Detection
+# =============================================================================
+
+@dataclass
+class DeltaToken:
+    """Stores delta token information for Graph API delta queries."""
+    drive_id: str
+    token: str
+    last_updated: datetime
+    token_type: str = "files"  # "files" or "permissions"
+
+    def to_dict(self) -> dict:
+        return {
+            "drive_id": self.drive_id,
+            "token": self.token,
+            "last_updated": self.last_updated.isoformat(),
+            "token_type": self.token_type
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DeltaToken":
+        return cls(
+            drive_id=data["drive_id"],
+            token=data["token"],
+            last_updated=datetime.fromisoformat(data["last_updated"]),
+            token_type=data.get("token_type", "files")
+        )
+
+
+class DeltaTokenStorage:
+    """
+    Manages storage and retrieval of delta tokens for Graph API delta queries.
+
+    Tokens are stored as JSON files in a specified directory.
+    """
+
+    def __init__(self, storage_path: str):
+        self.storage_path = storage_path
+        os.makedirs(storage_path, exist_ok=True)
+
+    def _get_token_file_path(self, drive_id: str, token_type: str = "files") -> str:
+        safe_id = drive_id.replace("!", "_").replace(",", "_")
+        return os.path.join(self.storage_path, f"delta_token_{token_type}_{safe_id}.json")
+
+    def get_token(self, drive_id: str, token_type: str = "files") -> Optional[DeltaToken]:
+        token_path = self._get_token_file_path(drive_id, token_type)
+        if not os.path.exists(token_path):
+            return None
+        try:
+            with open(token_path, 'r') as f:
+                data = json.load(f)
+                return DeltaToken.from_dict(data)
+        except (json.JSONDecodeError, KeyError, ValueError) as e:
+            logger.warning("Failed to load delta token", error=str(e), path=token_path)
+            return None
+
+    def save_token(self, token: DeltaToken) -> None:
+        token_path = self._get_token_file_path(token.drive_id, token.token_type)
+        with open(token_path, 'w') as f:
+            json.dump(token.to_dict(), f, indent=2)
+        logger.info("Saved delta token", drive_id=token.drive_id, token_type=token.token_type, path=token_path)
+
+    def delete_token(self, drive_id: str, token_type: str = "files") -> None:
+        token_path = self._get_token_file_path(drive_id, token_type)
+        if os.path.exists(token_path):
+            os.remove(token_path)
+            logger.info("Deleted delta token", drive_id=drive_id, token_type=token_type)
+
+
+class GraphDeltaFilesClient:
+    """
+    Client that uses Microsoft Graph delta API to detect file changes.
+
+    This approach uses the following Graph API features:
+    - Delta query: GET /drives/{drive-id}/root/delta
+    - Returns only changed items since last sync (after initial enumeration)
+    - Tracks deleted items with "deleted" facet
+
+    See: https://learn.microsoft.com/en-us/graph/api/driveitem-delta
+    """
+
+    GRAPH_SCOPES = ["https://graph.microsoft.com/.default"]
+
+    def __init__(self, drive_id: str, token_storage: DeltaTokenStorage):
+        self.drive_id = drive_id
+        self.token_storage = token_storage
+        self._credential = None
+        self._client: Optional[GraphServiceClient] = None
+
+    async def __aenter__(self) -> "GraphDeltaFilesClient":
+        self._credential = _get_credential()
+        self._client = GraphServiceClient(
+            credentials=self._credential,
+            scopes=self.GRAPH_SCOPES
+        )
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        if self._credential:
+            await self._credential.close()
+
+    async def get_changed_files(self, folder_path: str = "/") -> AsyncIterator[SharePointFile]:
+        """
+        Query Graph API delta to find files that have changed.
+        Yields SharePointFile for each changed file with change_type set.
+        """
+        if not self._credential:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+
+        existing_token = self.token_storage.get_token(self.drive_id, "files")
+
+        await logger.ainfo(
+            "Starting Graph delta query for file changes",
+            drive_id=self.drive_id,
+            has_existing_token=existing_token is not None,
+            folder_path=folder_path
+        )
+
+        folder_filter = folder_path.strip("/").lower() if folder_path and folder_path != "/" else ""
+
+        try:
+            async with httpx.AsyncClient() as http_client:
+                token = await self._credential.get_token("https://graph.microsoft.com/.default")
+
+                if existing_token:
+                    delta_url = f"https://graph.microsoft.com/v1.0/drives/{self.drive_id}/root/delta?token={existing_token.token}"
+                else:
+                    delta_url = f"https://graph.microsoft.com/v1.0/drives/{self.drive_id}/root/delta"
+
+                headers = {"Authorization": f"Bearer {token.token}"}
+                new_delta_link = None
+                items_processed = 0
+                files_changed = 0
+                files_deleted = 0
+
+                while delta_url:
+                    response = await http_client.get(delta_url, headers=headers, timeout=60.0)
+
+                    if response.status_code == 410:
+                        await logger.awarning("Delta token expired, starting fresh enumeration")
+                        self.token_storage.delete_token(self.drive_id, "files")
+                        delta_url = f"https://graph.microsoft.com/v1.0/drives/{self.drive_id}/root/delta"
+                        existing_token = None
+                        continue
+
+                    response.raise_for_status()
+                    data = response.json()
+
+                    for item in data.get("value", []):
+                        items_processed += 1
+
+                        parent_ref = item.get("parentReference", {})
+                        parent_path = parent_ref.get("path", "")
+                        if ":/" in parent_path:
+                            parent_path = parent_path.split(":/", 1)[1]
+                        elif parent_path:
+                            parent_path = parent_path.lstrip("/")
+
+                        item_name = item.get("name", "")
+                        item_path = f"/{parent_path}/{item_name}" if parent_path else f"/{item_name}"
+                        item_path = item_path.replace("//", "/")
+
+                        if folder_filter:
+                            item_path_lower = item_path.lower().lstrip("/")
+                            if not item_path_lower.startswith(folder_filter):
+                                continue
+
+                        if "folder" in item:
+                            continue
+
+                        item_id = item.get("id", "")
+
+                        if "deleted" in item:
+                            files_deleted += 1
+                            yield SharePointFile(
+                                id=item_id, name=item_name, path=item_path,
+                                size=0, last_modified=datetime.utcnow(),
+                                change_type=FileChangeType.DELETED
+                            )
+                            continue
+
+                        if "file" not in item:
+                            continue
+
+                        files_changed += 1
+                        change_type = FileChangeType.MODIFIED if existing_token else FileChangeType.ADDED
+
+                        last_modified_str = item.get("lastModifiedDateTime")
+                        last_modified = datetime.utcnow()
+                        if last_modified_str:
+                            try:
+                                last_modified = datetime.fromisoformat(last_modified_str.replace("Z", "+00:00"))
+                            except ValueError:
+                                pass
+
+                        yield SharePointFile(
+                            id=item_id, name=item_name, path=item_path,
+                            size=item.get("size", 0), last_modified=last_modified,
+                            content_hash=item.get("cTag") or item.get("eTag"),
+                            change_type=change_type
+                        )
+
+                    delta_url = data.get("@odata.nextLink")
+                    if not delta_url:
+                        new_delta_link = data.get("@odata.deltaLink")
+
+                await logger.ainfo("Graph delta query completed",
+                    items_processed=items_processed, files_changed=files_changed,
+                    files_deleted=files_deleted, is_initial_sync=existing_token is None)
+
+                if new_delta_link:
+                    from urllib.parse import urlparse, parse_qs
+                    parsed = urlparse(new_delta_link)
+                    query_params = parse_qs(parsed.query)
+                    token_value = query_params.get("token", [None])[0]
+                    if token_value:
+                        new_token = DeltaToken(
+                            drive_id=self.drive_id, token=token_value,
+                            last_updated=datetime.utcnow(), token_type="files"
+                        )
+                        self.token_storage.save_token(new_token)
+
+        except Exception as e:
+            await logger.aerror("Error during Graph delta query for files", error=str(e))
+            raise
+
+    async def download_file(self, item_id: str) -> bytes:
+        if not self._client:
+            raise RuntimeError("Client not initialized. Use async with context manager.")
+        content = await self._client.drives.by_drive_id(self.drive_id).items.by_drive_item_id(item_id).content.get()
+        return content if content is not None else b""
