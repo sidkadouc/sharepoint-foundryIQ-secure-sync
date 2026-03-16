@@ -108,6 +108,39 @@ The `PERMISSIONS_DELTA_MODE` setting controls how both **file changes** and **pe
 
 > **Note**: The blob metadata format remains the same regardless of delta mode, ensuring no breaking changes when switching modes.
 
+### Purview Integration Settings
+
+Microsoft Purview sensitivity label detection and RMS (Azure Rights Management) protection sync is controlled by a single parameter:
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `SYNC_PURVIEW_PROTECTION` | No | Enable Purview sensitivity label & RMS protection sync (default: `false`) | `true` |
+
+When `SYNC_PURVIEW_PROTECTION=true`, the sync pipeline:
+
+1. **Reads sensitivity labels** from each SharePoint file via Microsoft Graph
+2. **Detects RMS encryption** and extracts usage rights (VIEW, EDIT, EXPORT, etc.)
+3. **Computes dual-layer ACLs** — effective access = SharePoint permissions ∩ RMS permissions
+4. **Writes Purview metadata** to blob storage:
+
+| Blob Metadata Key | Value |
+|--------------------|-------|
+| `purview_protection_status` | `unprotected`, `protected`, `label_only`, `unknown` |
+| `purview_label_id` | GUID of the applied sensitivity label |
+| `purview_label_name` | Display name (e.g., `Highly Confidential`) |
+| `purview_is_encrypted` | `true` / `false` |
+| `purview_rms_permissions` | JSON array of RMS permission entries |
+| `purview_detected_at` | ISO timestamp |
+
+#### Required App Permissions
+
+Your Azure AD app registration needs these additional Graph API permissions for Purview:
+
+- `Files.Read.All` — Read files and sensitivity labels on items
+- `InformationProtectionPolicy.Read.All` — Read label definitions and RMS policies
+
+> **Note**: If using `Sites.Selected` scope, add the service principal as an **RMS Super User** to decrypt RMS-protected files. See [docs/purview-rms-explained.md](docs/purview-rms-explained.md) for setup details.
+
 ## Authentication
 
 | Method | Use Case | Configuration |

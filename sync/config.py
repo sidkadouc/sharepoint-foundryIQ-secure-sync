@@ -36,6 +36,9 @@ class Config:
     permissions_delta_mode: PermissionsDeltaMode  # "hash" or "graph_delta"
     delta_token_storage_path: str  # Path to store delta tokens for graph_delta mode
     
+    # Permissions sync settings
+    sync_permissions: bool  # If True, sync SharePoint file permissions to blob metadata
+    
     # Purview/RMS protection settings
     sync_purview_protection: bool  # If True, detect and sync Purview sensitivity labels + RMS permissions
     
@@ -71,6 +74,9 @@ class Config:
             # Permissions delta mode
             permissions_delta_mode=permissions_delta_mode,
             delta_token_storage_path=os.environ.get("DELTA_TOKEN_STORAGE_PATH", ".delta_tokens"),
+            
+            # Permissions sync
+            sync_permissions=os.environ.get("SYNC_PERMISSIONS", "false").lower() == "true",
             
             # Purview/RMS protection
             sync_purview_protection=os.environ.get("SYNC_PURVIEW_PROTECTION", "false").lower() == "true",

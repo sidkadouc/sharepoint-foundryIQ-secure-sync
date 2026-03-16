@@ -33,15 +33,13 @@ from sharepoint_client import (
 )
 from blob_client import BlobStorageClient, BlobFile
 from permissions_sync import (
-    PermissionsClient, 
-    is_permissions_sync_enabled, 
+    PermissionsClient,
     permissions_to_summary,
     should_sync_permissions,
     GraphDeltaPermissionsClient,
 )
 from purview_client import (
     PurviewClient,
-    is_purview_sync_enabled,
     FileProtectionInfo,
     ProtectionStatus,
 )
@@ -104,12 +102,55 @@ class SyncStats:
     purview_label_only: int = 0      # Files with sensitivity label but no encryption
     purview_unprotected: int = 0     # Files with no sensitivity label
     purview_failed: int = 0          # Files where Purview detection failed
+    rms_download_failed: int = 0     # Files where download was blocked by RMS encryption
     sync_mode: str = "full"  # "full" or "delta"
 
 
 def _force_full_sync() -> bool:
     """Check if a full sync is explicitly requested via env var."""
     return os.environ.get("FORCE_FULL_SYNC", "false").lower() == "true"
+
+
+_RMS_ERROR_INDICATORS = [
+    "access denied", "403", "forbidden",
+    "locked", "423",
+    "drm", "rights management",
+    "encrypted", "protection",
+    "the file is encrypted",
+]
+
+
+async def _download_with_rms_fallback(
+    sp_client: SharePointClient,
+    file_id: str,
+    file_path: str,
+) -> tuple[bytes, bool]:
+    """
+    Download a file with graceful handling for RMS-encrypted files.
+
+    When a file is protected with RMS encryption and the application
+    does not have sufficient rights to decrypt, the Graph API returns
+    an access error.  This helper catches such errors so the caller
+    can still upload a placeholder blob and sync permissions/metadata.
+
+    Returns:
+        Tuple of (content, rms_blocked).  When *rms_blocked* is True
+        the content is an empty ``bytes`` placeholder.
+    """
+    try:
+        content = await sp_client.download_file(file_id)
+        return content, False
+    except Exception as e:
+        error_str = str(e).lower()
+        if any(ind in error_str for ind in _RMS_ERROR_INDICATORS):
+            await logger.awarning(
+                "File download blocked by RMS encryption — "
+                "uploading empty placeholder with metadata",
+                file_path=file_path,
+                error=str(e),
+            )
+            return b"", True
+        raise
 
 
 async def _sync_permissions_for_files(
@@ -181,8 +222,6 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
         SyncStats with the operation results
     """
     stats = SyncStats()
-    sync_permissions = is_permissions_sync_enabled()
-    sync_purview = config.sync_purview_protection
     force_full = _force_full_sync()
 
     await logger.ainfo("Starting SharePoint to Blob sync",
@@ -192,9 +231,9 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
         storage_account=config.storage_account_name,
         container=config.container_name,
         dry_run=config.dry_run,
-        sync_permissions=sync_permissions,
-        sync_purview_protection=sync_purview,
-        delta_mode=config.permissions_delta_mode.value,
+        sync_permissions=config.sync_permissions,
+        sync_purview_protection=config.sync_purview_protection,
+        permissions_delta_mode=config.permissions_delta_mode.value,
         force_full_sync=force_full,
     )
 
@@ -251,7 +290,8 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                                 path=sp_file.path,
                                 size=sp_file.size,
                             )
-                            content = await sp_client.download_file(sp_file.id)
+                            content, rms_blocked = await _download_with_rms_fallback(
+                                sp_client, sp_file.id, sp_file.path)
                             await blob_client.upload_blob(
                                 sharepoint_path=sp_file.path,
                                 content=content,
@@ -260,6 +300,11 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                                 sharepoint_content_hash=sp_file.content_hash,
                                 dry_run=config.dry_run,
                             )
+                            if rms_blocked:
+                                stats.rms_download_failed += 1
+                                await blob_client.update_blob_metadata(
+                                    blob_name, {"rms_download_blocked": "true"},
+                                    dry_run=config.dry_run)
                             stats.files_added += 1
                             stats.bytes_transferred += len(content)
                             changed_files.append(sp_file)
@@ -275,23 +320,21 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                     await blob_client.save_delta_token(
                         delta_result.delta_token, dry_run=config.dry_run)
 
-                # Permissions: always do a full scan when enabled.
-                # The Graph delta API CAN detect permission changes via the
-                # Prefer: deltashowsharingchanges header, but this requires
-                # Sites.FullControl.All — we only use Sites.Read.All, so
-                # delta-based permission tracking is not available to us.
-                # Full re-scan is the correct approach at this permission level.
-                # See: https://learn.microsoft.com/en-us/graph/api/driveitem-delta#scanning-permissions-hierarchies
-                if sync_permissions:
-                    await logger.ainfo(
-                        "Syncing permissions for ALL files "
-                        "(permission changes are invisible to delta API)...")
-                    all_files_for_perms: List[SharePointFile] = []
-                    async for sp_file in sp_client.list_files(config.sharepoint_folder_path):
-                        all_files_for_perms.append(sp_file)
-                    await _sync_permissions_for_files(
-                        sp_client, blob_client, drive_id,
-                        all_files_for_perms, stats, config.dry_run)
+                # ── Permissions + Purview metadata sync (optional) ──
+                # Uses hash-based or graph-delta mode depending on config.
+                # Purview labels are detected within these functions when enabled.
+                if config.sync_permissions:
+                    existing_blobs_for_perms: Dict[str, BlobFile] = {}
+                    async for blob in blob_client.list_blobs():
+                        existing_blobs_for_perms[blob.name] = blob
+                    if config.permissions_delta_mode == PermissionsDeltaMode.HASH:
+                        await _sync_permissions_hash_mode(
+                            config, drive_id, sp_client, blob_client,
+                            existing_blobs_for_perms, stats)
+                    else:
+                        await _sync_permissions_graph_delta(
+                            config, drive_id, sp_client, blob_client,
+                            existing_blobs_for_perms, stats)
 
             else:
                 # ---- Full sync (fallback) ---- #
@@ -316,7 +359,8 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                         if existing_blob is None:
                             await logger.ainfo("New file detected",
                                 sharepoint_path=sp_file.path, size=sp_file.size)
-                            content = await sp_client.download_file(sp_file.id)
+                            content, rms_blocked = await _download_with_rms_fallback(
+                                sp_client, sp_file.id, sp_file.path)
                             await blob_client.upload_blob(
                                 sharepoint_path=sp_file.path,
                                 content=content,
@@ -325,13 +369,20 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                                 sharepoint_content_hash=sp_file.content_hash,
                                 dry_run=config.dry_run,
                             )
+                            if rms_blocked:
+                                stats.rms_download_failed += 1
+                                await blob_client.update_blob_metadata(
+                                    blob_client._get_blob_name(sp_file.path),
+                                    {"rms_download_blocked": "true"},
+                                    dry_run=config.dry_run)
                             stats.files_added += 1
                             stats.bytes_transferred += len(content)
                             all_files.append(sp_file)
                         elif blob_client.should_update(existing_blob, sp_file.last_modified, sp_file.content_hash):
                             await logger.ainfo("Modified file detected",
                                 sharepoint_path=sp_file.path, size=sp_file.size)
-                            content = await sp_client.download_file(sp_file.id)
+                            content, rms_blocked = await _download_with_rms_fallback(
+                                sp_client, sp_file.id, sp_file.path)
                             await blob_client.upload_blob(
                                 sharepoint_path=sp_file.path,
                                 content=content,
@@ -340,6 +391,12 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                                 sharepoint_content_hash=sp_file.content_hash,
                                 dry_run=config.dry_run,
                             )
+                            if rms_blocked:
+                                stats.rms_download_failed += 1
+                                await blob_client.update_blob_metadata(
+                                    blob_client._get_blob_name(sp_file.path),
+                                    {"rms_download_blocked": "true"},
+                                    dry_run=config.dry_run)
                             stats.files_updated += 1
                             stats.bytes_transferred += len(content)
                             all_files.append(sp_file)
@@ -363,11 +420,16 @@ async def sync_sharepoint_to_blob(config: Config) -> SyncStats:
                                     blob_name=blob_name, error=str(e))
                                 stats.files_failed += 1
 
-                # Sync permissions for ALL files in full-sync mode
-                if sync_permissions:
-                    await _sync_permissions_for_files(
-                        sp_client, blob_client, drive_id,
-                        all_files, stats, config.dry_run)
+                # ── Permissions + Purview metadata sync (optional) ──
+                if config.sync_permissions:
+                    if config.permissions_delta_mode == PermissionsDeltaMode.HASH:
+                        await _sync_permissions_hash_mode(
+                            config, drive_id, sp_client, blob_client,
+                            existing_blobs, stats)
+                    else:
+                        await _sync_permissions_graph_delta(
+                            config, drive_id, sp_client, blob_client,
+                            existing_blobs, stats)
 
     return stats
 
@@ -407,7 +469,8 @@ async def _sync_files_full_scan(
                     size=sp_file.size
                 )
                 
-                content = await sp_client.download_file(sp_file.id)
+                content, rms_blocked = await _download_with_rms_fallback(
+                    sp_client, sp_file.id, sp_file.path)
                 await blob_client.upload_blob(
                     sharepoint_path=sp_file.path,
                     content=content,
@@ -416,6 +479,11 @@ async def _sync_files_full_scan(
                     sharepoint_content_hash=sp_file.content_hash,
                     dry_run=config.dry_run
                 )
+                if rms_blocked:
+                    stats.rms_download_failed += 1
+                    await blob_client.update_blob_metadata(
+                        blob_name, {"rms_download_blocked": "true"},
+                        dry_run=config.dry_run)
                 
                 stats.files_added += 1
                 stats.bytes_transferred += len(content)
@@ -428,7 +496,8 @@ async def _sync_files_full_scan(
                     sp_modified=sp_file.last_modified.isoformat() if sp_file.last_modified else None
                 )
                 
-                content = await sp_client.download_file(sp_file.id)
+                content, rms_blocked = await _download_with_rms_fallback(
+                    sp_client, sp_file.id, sp_file.path)
                 await blob_client.upload_blob(
                     sharepoint_path=sp_file.path,
                     content=content,
@@ -437,6 +506,11 @@ async def _sync_files_full_scan(
                     sharepoint_content_hash=sp_file.content_hash,
                     dry_run=config.dry_run
                 )
+                if rms_blocked:
+                    stats.rms_download_failed += 1
+                    await blob_client.update_blob_metadata(
+                        blob_name, {"rms_download_blocked": "true"},
+                        dry_run=config.dry_run)
                 
                 stats.files_updated += 1
                 stats.bytes_transferred += len(content)
@@ -511,7 +585,8 @@ async def _sync_files_graph_delta(
                         size=sp_file.size
                     )
                     
-                    content = await delta_client.download_file(sp_file.id)
+                    content, rms_blocked = await _download_with_rms_fallback(
+                        delta_client, sp_file.id, sp_file.path)
                     await blob_client.upload_blob(
                         sharepoint_path=sp_file.path,
                         content=content,
@@ -520,6 +595,11 @@ async def _sync_files_graph_delta(
                         sharepoint_content_hash=sp_file.content_hash,
                         dry_run=config.dry_run
                     )
+                    if rms_blocked:
+                        stats.rms_download_failed += 1
+                        await blob_client.update_blob_metadata(
+                            blob_name, {"rms_download_blocked": "true"},
+                            dry_run=config.dry_run)
                     
                     stats.files_added += 1
                     stats.bytes_transferred += len(content)
@@ -531,7 +611,8 @@ async def _sync_files_graph_delta(
                         size=sp_file.size
                     )
                     
-                    content = await delta_client.download_file(sp_file.id)
+                    content, rms_blocked = await _download_with_rms_fallback(
+                        delta_client, sp_file.id, sp_file.path)
                     await blob_client.upload_blob(
                         sharepoint_path=sp_file.path,
                         content=content,
@@ -540,6 +621,11 @@ async def _sync_files_graph_delta(
                         sharepoint_content_hash=sp_file.content_hash,
                         dry_run=config.dry_run
                     )
+                    if rms_blocked:
+                        stats.rms_download_failed += 1
+                        await blob_client.update_blob_metadata(
+                            blob_name, {"rms_download_blocked": "true"},
+                            dry_run=config.dry_run)
                     
                     stats.files_updated += 1
                     stats.bytes_transferred += len(content)
@@ -830,6 +916,7 @@ async def main() -> int:
             purview_label_only=stats.purview_label_only,
             purview_unprotected=stats.purview_unprotected,
             purview_failed=stats.purview_failed,
+            rms_download_failed=stats.rms_download_failed,
         )
         
         # Return non-zero exit code if there were failures

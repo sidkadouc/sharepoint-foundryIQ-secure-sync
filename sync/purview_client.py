@@ -327,9 +327,26 @@ class PurviewClient:
         """
         try:
             headers = await self._get_auth_headers()
-            url = "https://graph.microsoft.com/v1.0/security/informationProtection/sensitivityLabels"
 
-            response = await self._http_client.get(url, headers=headers)
+            # Try v1.0 first, fall back to beta if not available
+            # Some tenants (e.g., M365 developer tenants) only expose
+            # the informationProtection segment on the beta endpoint.
+            urls_to_try = [
+                "https://graph.microsoft.com/v1.0/security/informationProtection/sensitivityLabels",
+                "https://graph.microsoft.com/beta/security/informationProtection/sensitivityLabels",
+            ]
+
+            response = None
+            for url in urls_to_try:
+                response = await self._http_client.get(url, headers=headers)
+                if response.status_code == 200:
+                    await logger.ainfo("Loaded sensitivity labels from endpoint", url=url)
+                    break
+                await logger.adebug(
+                    "Label endpoint not available, trying next",
+                    url=url,
+                    status_code=response.status_code,
+                )
 
             if response.status_code == 403:
                 await logger.awarning(
@@ -341,7 +358,7 @@ class PurviewClient:
 
             if response.status_code != 200:
                 await logger.awarning(
-                    "Failed to load sensitivity labels",
+                    "Failed to load sensitivity labels from all endpoints",
                     status_code=response.status_code,
                     body=response.text[:500],
                 )
@@ -384,38 +401,22 @@ class PurviewClient:
         """
         Determine if a sensitivity label definition includes encryption.
 
-        The Graph API label object has:
-        - contentFormats: list of content formats (e.g., ["file", "email"])
-        - isActive: whether the label is active
-        - The actual encryption config is in the label policy, but we can infer
-          from label properties and heuristics.
+        Uses the explicit ``hasProtection`` field returned by the Graph API
+        (available on both v1.0 and beta endpoints).  Falls back to the
+        ``isEncryptingContent`` field when ``hasProtection`` is absent.
 
-        For a more reliable check, we look at the label's 'actionSource' and
-        'protectionSettings' if available, or fall back to checking if the
-        label's name/tooltip suggests encryption.
+        Previous versions used name-based heuristics (e.g. matching
+        "confidential") which produced false positives — labels whose name
+        matched but had no encryption configured.  This has been removed
+        in favour of the authoritative API fields.
         """
-        # Check if protection settings indicate encryption
-        # The Graph v1.0 API may not expose all details, so we use heuristics
-        name = (label_data.get("name") or "").lower()
-        tooltip = (label_data.get("tooltip") or "").lower()
+        # Primary: explicit hasProtection field from Graph API
+        if "hasProtection" in label_data:
+            return bool(label_data["hasProtection"])
 
-        # Common Purview label patterns that indicate encryption
-        encryption_indicators = [
-            "encrypt", "confidential", "highly confidential",
-            "internal only", "secret", "restricted",
-        ]
-
-        # Check if any content format settings suggest encryption
-        content_formats = label_data.get("contentFormats", [])
-
-        # If the label has protection settings explicitly
+        # Fallback: isEncryptingContent (older API versions)
         if label_data.get("isEncryptingContent"):
             return True
-
-        # Heuristic: check name/tooltip for encryption keywords
-        for indicator in encryption_indicators:
-            if indicator in name or indicator in tooltip:
-                return True
 
         return False
 
@@ -534,11 +535,21 @@ class PurviewClient:
             data = response.json()
             label_data = data.get("sensitivityLabel")
 
+            # sensitivityLabel can be null, empty object, or have empty fields
             if not label_data:
                 return None
 
-            label_id = label_data.get("labelId", "")
-            display_name = label_data.get("displayName", "")
+            label_id = label_data.get("labelId") or ""
+            display_name = label_data.get("displayName") or ""
+
+            # If labelId is empty, no label is actually applied
+            if not label_id:
+                await logger.adebug(
+                    "sensitivityLabel present but labelId is empty — no label applied",
+                    file_path=file_path,
+                )
+                return None
+
             assignment_method = label_data.get("assignmentMethod", "standard")
 
             # Look up in cache to get encryption info
