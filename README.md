@@ -4,12 +4,25 @@ Sync files from SharePoint Online to Azure Blob Storage with permissions (ACLs),
 
 ## Architecture
 
-```
-SharePoint Online ──▶ Sync Job (Python) ──▶ Azure Blob Storage ──▶ Azure AI Search
-     files &               delta API              + ACL metadata       + OCR / chunking
-     permissions                                                       + vector embeddings
-                                                                       + ACL filtering
-```
+![Solution architecture flows](docs/diagrams/solution-flows.svg)
+
+Editable source: [docs/diagrams/solution-flows.mmd](docs/diagrams/solution-flows.mmd)
+
+Ingestion flow (SharePoint to AI Search):
+1. The sync runtime reads file and permission deltas from SharePoint.
+2. Purview sensitivity labels and RMS rights are evaluated.
+3. Effective ACLs are computed and persisted with document metadata.
+4. Content lands in Blob and is indexed into AI Search with chunks, vectors, and ACL fields.
+
+Query flow (Foundry agent with document security):
+1. The user query is sent through a Foundry agent or app layer with Entra ID identity.
+2. AI Search executes retrieval with document-level ACL filtering.
+3. Only authorized chunks are returned to grounding.
+4. The final answer is generated with citations limited to authorized sources.
+
+Network flow:
+- Inbound to AI Search is restricted to Private Endpoint paths.
+- Outbound from the sync runtime to SharePoint Online is forced through UDR and Azure Firewall.
 
 ## Components
 
@@ -20,6 +33,7 @@ SharePoint Online ──▶ Sync Job (Python) ──▶ Azure Blob Storage ─�
 | [ai-search/](ai-search/) | Search index, skillset, indexer deployment | [ai-search/README.md](ai-search/README.md) |
 | [demo/](demo/) | Flask web app — Entra ID login + ACL-filtered search | [demo/README.md](demo/README.md) |
 | [tests/](tests/) | Search verification scripts | [tests/README.md](tests/README.md) |
+| [deploy-private/](deploy-private/) | Private VNet deployment — Foundry Agent v2 + all resources behind PEs | [deploy-private/README.md](deploy-private/README.md) |
 | [docs/](docs/) | Architecture & deep-dives (Purview/RMS, Agentic Retrieval) | See below |
 
 ### Documentation
@@ -158,6 +172,7 @@ Your Azure AD app registration needs these additional Graph API permissions for 
 | Method | Use Case | Configuration |
 |--------|----------|---------------|
 | App Registration | Local dev | `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID` |
+| Federated Identity (secretless) | Function App or job authenticates to Graph via Entra workload identity federation to an App Registration | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID` (no client secret) |
 | Managed Identity | Production (Container Apps) | No config needed |
 | Azure CLI | Quick local testing | `az login` |
 
@@ -190,6 +205,25 @@ This pipeline syncs and secures individual SharePoint sites. The natural evoluti
 Example: *"Compare the data retention policy from Legal with the GDPR checklist on Compliance and tell me if we have any gaps"* → the agent targets each site's knowledge source, merges results, and synthesizes a gap analysis — all respecting per-document ACLs and Purview sensitivity labels.
 
 See **[docs/agentic-retrieval-foundry-iq.md](docs/agentic-retrieval-foundry-iq.md)** for detailed architecture, 5 real-world enterprise scenarios, and getting-started code.
+
+### Private Network Deployment (Foundry Agent v2)
+
+Deploy all resources behind a VNet with private endpoints, plus a Foundry Agent (v2) connected to the AI Search knowledge base:
+
+```bash
+cd deploy-private
+
+# Step 1: Foundry instance + VNet + all private resources
+./deploy-foundry.sh
+
+# Step 2: Project + capability host + agent (v2 .NET SDK)
+PROJECT_NAME=my-project ./deploy-project.sh
+
+# Optional: sync Function App with VNet integration
+RUNTIME=python ./deploy-sync-private.sh
+```
+
+See [deploy-private/README.md](deploy-private/README.md) for full details, Terraform option, and multi-project setup.
 
 ## License
 

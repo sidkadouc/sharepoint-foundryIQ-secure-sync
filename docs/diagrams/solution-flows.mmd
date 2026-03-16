@@ -1,0 +1,42 @@
+flowchart LR
+  classDef external fill:#f6f9ff,stroke:#2f6fed,stroke-width:1.5px,color:#10336b;
+  classDef ingest fill:#eefaf0,stroke:#1f8f3f,stroke-width:1.5px,color:#0f5c28;
+  classDef query fill:#fff5e8,stroke:#d97706,stroke-width:1.5px,color:#7a3e00;
+  classDef network fill:#fff1f2,stroke:#e11d48,stroke-width:1.5px,color:#881337;
+  classDef data fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827;
+
+  subgraph ING[Ingestion flow: secure SharePoint to AI Search]
+    direction LR
+    SP[1 SharePoint Online content and ACLs]:::external --> I1[2 Sync Function or Job Python or .NET]:::ingest
+    I1 --> I2[3 Delta processing files plus permissions]:::ingest
+    I2 --> I3[4 Purview label plus RMS rights detection]:::ingest
+    I3 --> I4[5 Effective ACL intersection projection]:::ingest
+    I4 --> B[6 Blob Storage via Private Endpoint]:::ingest
+    B --> S1[7 AI Search indexer and skillset]:::ingest
+    S1 --> S2[8 Chunking OCR embeddings and ACL fields]:::ingest
+    S2 --> IDX[(9 Azure AI Search index)]:::data
+  end
+
+  subgraph QRY[Query flow: Foundry agent plus Entra ID document security]
+    direction LR
+    U[1 User in app Copilot or API]:::external --> Q1[2 Foundry Agent or app query layer]:::query
+    Q1 --> Q2[3 Entra ID token and group claims]:::query
+    Q2 --> Q3[4 Query AI Search]:::query
+    IDX --> Q3
+    Q3 --> Q4[5 Document-level ACL filter]:::query
+    Q4 --> Q5[6 Purview-aware authorized evidence]:::query
+    Q5 --> QR[7 Grounded answer with citations]:::query
+  end
+
+  subgraph NET[Private network paths]
+    direction LR
+    PE[Private Endpoint inbound to AI Search]:::network
+    UDR[UDR default route from sync subnet]:::network
+    FW[Azure Firewall controlled egress]:::network
+    SPNET[SharePoint Online or Graph outside VNet]:::external
+    I1 --> PE
+    Q1 --> PE
+    I1 --> UDR --> FW --> SPNET
+  end
+
+  PE --> S1

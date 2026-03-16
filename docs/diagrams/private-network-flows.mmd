@@ -1,0 +1,63 @@
+flowchart LR
+  classDef compute fill:#eefaf0,stroke:#1f8f3f,stroke-width:1.5px,color:#0f5c28;
+  classDef pe fill:#f6f9ff,stroke:#2f6fed,stroke-width:1.5px,color:#10336b;
+  classDef network fill:#fff1f2,stroke:#e11d48,stroke-width:1.5px,color:#881337;
+  classDef data fill:#f3f4f6,stroke:#4b5563,stroke-width:1.5px,color:#111827;
+  classDef platform fill:#f5f3ff,stroke:#6d28d9,stroke-width:1.5px,color:#4c1d95;
+
+  subgraph VNET[Virtual Network 10.0.0.0/16]
+    direction LR
+    subgraph AGENTNET[snet-agent /24]
+      AGENT[Foundry Agent runtime]:::compute
+      DELEG[Subnet delegated Microsoft.App or environments]:::network
+    end
+
+    subgraph SYNCNET[snet-sync /24]
+      SYNC[SharePoint Sync Function or Job]:::compute
+      FED[Workload identity federation to App Registration no secret]:::compute
+      UDR[UDR 0.0.0.0/0 from sync subnet]:::network
+      SYNC --- FED
+    end
+
+    subgraph PENET[snet-private-endpoints /24]
+      PESEARCH[Private Endpoint AI Search]:::pe
+      PEBLOB[Private Endpoint Storage Blob]:::pe
+      PECOSMOS[Private Endpoint Cosmos DB]:::pe
+      PEFOUNDRY[Private Endpoint Foundry AIServices]:::pe
+    end
+
+    DNS[Private DNS zones blob search documents cognitiveservices openai services.ai file]:::network
+    PNA[Public network access Disabled on Foundry Search Storage Cosmos]:::network
+    FW[Azure Firewall]:::network
+
+    AGENT --> PESEARCH
+    AGENT --> PEFOUNDRY
+    AGENT --> PECOSMOS
+    AGENT --- DELEG
+
+    SYNC --> PEBLOB
+    SYNC --> PESEARCH
+    SYNC --> UDR --> FW
+  end
+
+  subgraph PLATFORM[Microsoft managed platform network]
+    PLAT[Container injection to delegated agent subnet]:::platform
+    NOPUB[No public egress for managed agent infrastructure]:::platform
+  end
+
+  PLAT --> AGENT
+  PLAT --> NOPUB
+
+  FW --> SPO[SharePoint Online and Microsoft Graph public endpoints]:::network
+  PESEARCH --> SEARCH[(Azure AI Search)]:::data
+  PEBLOB --> BLOB[(Storage Account Blob)]:::data
+  PECOSMOS --> COSMOS[(Cosmos DB)]:::data
+  PEFOUNDRY --> FOUNDRY[(Foundry Account)]:::data
+  DNS --> PESEARCH
+  DNS --> PEBLOB
+  DNS --> PEFOUNDRY
+  DNS --> PECOSMOS
+  PNA --> PESEARCH
+  PNA --> PEBLOB
+  PNA --> PECOSMOS
+  PNA --> PEFOUNDRY

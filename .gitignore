@@ -45,3 +45,16 @@ bin/
 obj/
 .publish/
 *.user
+
+# Private deployment outputs
+deploy-private/.infra-outputs
+deploy-private/.foundry-outputs
+deploy-private/agent-config.json
+.env.private
+
+# Terraform
+deploy-private/terraform/.terraform/
+deploy-private/terraform/.terraform.lock.hcl
+deploy-private/terraform/terraform.tfstate*
+deploy-private/terraform/terraform.tfvars
+deploy-private/terraform/*.auto.tfvars

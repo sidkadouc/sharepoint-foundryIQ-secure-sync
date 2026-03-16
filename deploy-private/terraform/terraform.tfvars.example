@@ -1,0 +1,23 @@
+subscription_id       = "00000000-0000-0000-0000-000000000000"
+resource_group_name   = "rg-spsync-private"
+location              = "swedencentral"
+
+# Networking
+vnet_name             = "vnet-spsync"
+vnet_address_prefix   = "10.0.0.0/16"
+subnet_pe_prefix      = "10.0.1.0/24"
+subnet_sync_prefix    = "10.0.2.0/24"
+subnet_agent_prefix   = "10.0.3.0/24"
+
+# Resource names (must be globally unique)
+storage_account_name  = "stspsyncprivate"
+search_service_name   = "srch-spsync-private"
+openai_resource_name  = "oai-spsync-private"
+cosmosdb_account_name = "cosmos-spsync-private"
+
+# AI models
+embedding_deployment_name = "text-embedding-3-large"
+chat_deployment_name      = "gpt-4o"
+
+# Blob
+blob_container_name   = "sharepoint-sync"
