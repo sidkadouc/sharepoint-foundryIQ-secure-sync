@@ -3,23 +3,23 @@ output "resource_group_name" {
 }
 
 output "vnet_name" {
-  value = azurerm_virtual_network.vnet.name
+  value = var.use_existing_vnet ? "(existing)" : azurerm_virtual_network.vnet[0].name
 }
 
 output "vnet_id" {
-  value = azurerm_virtual_network.vnet.id
+  value = local.vnet_id
 }
 
 output "subnet_pe_id" {
-  value = azurerm_subnet.pe.id
+  value = local.subnet_pe_id
 }
 
 output "subnet_sync_id" {
-  value = azurerm_subnet.sync.id
+  value = local.subnet_sync_id
 }
 
 output "subnet_agent_id" {
-  value = azurerm_subnet.agent.id
+  value = local.subnet_agent_id
 }
 
 output "storage_account_name" {

@@ -2,6 +2,15 @@ subscription_id       = "00000000-0000-0000-0000-000000000000"
 resource_group_name   = "rg-spsync-private"
 location              = "swedencentral"
 
+# Set to true to deploy into existing VNet/subnets
+use_existing_vnet     = false
+
+# Required when use_existing_vnet=true
+existing_vnet_id      = ""
+existing_subnet_pe_id = ""
+existing_subnet_agent_id = ""
+existing_subnet_sync_id  = ""
+
 # Networking
 vnet_name             = "vnet-spsync"
 vnet_address_prefix   = "10.0.0.0/16"

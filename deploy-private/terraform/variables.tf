@@ -15,6 +15,36 @@ variable "location" {
   default     = "swedencentral"
 }
 
+variable "use_existing_vnet" {
+  description = "If true, use existing VNet/subnet IDs instead of creating a new VNet"
+  type        = bool
+  default     = false
+}
+
+variable "existing_vnet_id" {
+  description = "Existing VNet resource ID (required when use_existing_vnet=true)"
+  type        = string
+  default     = ""
+}
+
+variable "existing_subnet_pe_id" {
+  description = "Existing private endpoint subnet resource ID (required when use_existing_vnet=true)"
+  type        = string
+  default     = ""
+}
+
+variable "existing_subnet_agent_id" {
+  description = "Existing agent subnet resource ID delegated to Microsoft.App/environments (required when use_existing_vnet=true)"
+  type        = string
+  default     = ""
+}
+
+variable "existing_subnet_sync_id" {
+  description = "Optional existing sync subnet resource ID delegated to Microsoft.Web/serverFarms"
+  type        = string
+  default     = ""
+}
+
 # ── Networking ──────────────────────────────────────────────────────────────
 
 variable "vnet_name" {

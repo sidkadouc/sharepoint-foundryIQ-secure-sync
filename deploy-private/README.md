@@ -17,6 +17,19 @@ Editable source: [docs/diagrams/private-network-flows.mmd](../docs/diagrams/priv
 - Public network access is disabled for Foundry, AI Search, Storage, and Cosmos DB.
 - Private DNS coverage should include `privatelink.cognitiveservices.azure.com`, `privatelink.openai.azure.com`, `privatelink.services.ai.azure.com`, `privatelink.search.windows.net`, `privatelink.blob.core.windows.net`, and `privatelink.documents.azure.com`.
 
+## Network Options Summary
+
+| Option | Network ownership | Inbound access to Foundry/Search/Storage/Cosmos | Outbound control | Required inputs | Use when |
+|---|---|---|---|---|---|
+| `managed-private` (script) | Script creates VNet + subnets in your RG | Private Endpoints only (public access disabled) | Platform-managed networking for agent injection (`useMicrosoftManagedNetwork=true`) | `SUBSCRIPTION_ID` (+ optional names/prefixes) | Fastest secure start with minimal networking setup |
+| `byovnet` (script) | You provide existing VNet/subnets | Private Endpoints only (public access disabled) | Your network path for agent injection (`useMicrosoftManagedNetwork=false`) | `VNET_ID`, `SUBNET_PE_ID`, `SUBNET_AGENT_ID` | Enterprise networking control with existing hub/spoke policies |
+| Terraform module (`deploy-private/terraform`) | Choose created VNet or existing VNet/subnets | Private Endpoints only (public access disabled) | Customer-managed topology aligned to BYO pattern (`useMicrosoftManagedNetwork=false`) | `use_existing_vnet` + required IDs in existing mode | IaC-driven private deployment with or without existing network reuse |
+
+Notes:
+- In script `managed-private`, resources are still private; the script just creates the VNet/subnets for you.
+- In script `byovnet`, your provided subnet for agents must be delegated to `Microsoft.App/environments`.
+- Terraform now supports existing VNet deployment via `use_existing_vnet=true` + `existing_vnet_id`, `existing_subnet_pe_id`, `existing_subnet_agent_id`.
+
 ## Scripts
 
 | Script | Purpose |
@@ -25,16 +38,46 @@ Editable source: [docs/diagrams/private-network-flows.mmd](../docs/diagrams/priv
 | `deploy-project.sh` | **Step 2**: Create project + capability host + agent (v2 .NET SDK) |
 | `deploy-sync-private.sh` | **Optional**: Deploy sync Function App with VNet integration |
 
-## Terraform BYO VNet Support
+## Terraform Deployment Options (Working)
 
-Private endpoints are supported with Terraform for this deployment model.
-The implementation is aligned with the Foundry standard private networking BYO VNet pattern, including:
+| Deployment path | Status | What works today |
+|---|---|---|
+| `deploy-foundry.sh` with `NETWORK_MODE=managed-private` | Supported | End-to-end private deployment with script-created VNet/subnets + private endpoints + DNS + model deployments |
+| `deploy-foundry.sh` with `NETWORK_MODE=byovnet` | Supported | End-to-end private deployment using your existing VNet/subnet IDs |
+| `deploy-private/terraform` module with `use_existing_vnet=false` | Supported | End-to-end private deployment with Terraform-created VNet/subnets |
+| `deploy-private/terraform` module with `use_existing_vnet=true` | Supported | End-to-end private deployment into existing VNet/subnets using provided resource IDs |
 
+Terraform module scope in this repo:
 - Foundry AIServices account with agent subnet network injection
 - Private endpoints for Foundry, AI Search, Storage, and Cosmos DB
-- Private DNS zone configuration including `privatelink.cognitiveservices.azure.com`, `privatelink.openai.azure.com`, and `privatelink.services.ai.azure.com`
+- Private DNS zones including `privatelink.cognitiveservices.azure.com`, `privatelink.openai.azure.com`, `privatelink.services.ai.azure.com`, `privatelink.search.windows.net`, `privatelink.blob.core.windows.net`, and `privatelink.documents.azure.com`
 
-Reference sample: https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-terraform/15b-private-network-standard-agent-setup-byovnet
+Example Terraform run:
+
+```bash
+cd terraform
+
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with unique names and your subscription_id.
+
+terraform init
+terraform plan
+terraform apply
+```
+
+Terraform with existing VNet/subnets:
+
+```hcl
+use_existing_vnet      = true
+existing_vnet_id       = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>"
+existing_subnet_pe_id  = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<private-endpoint-subnet>"
+existing_subnet_agent_id = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<agent-subnet>"
+# optional:
+existing_subnet_sync_id = "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<sync-subnet>"
+```
+
+Reference sample used for alignment:
+https://github.com/microsoft-foundry/foundry-samples/tree/main/infrastructure/infrastructure-setup-terraform/15b-private-network-standard-agent-setup-byovnet
 
 ## Quick Start
 
@@ -86,6 +129,7 @@ PROJECT_NAME=project-b ./deploy-project.sh
 
 The `agent-tool/` directory contains a .NET console app that creates agents using the v2 API
 (`Azure.AI.Projects` 2.0.0-beta.1, `PromptAgentDefinition`, `CreateAgentVersionAsync`).
+For this repo, use the **Azure AI SDK** path (`Azure.AI.Projects` + `Azure.AI.Projects.OpenAI`) for Agent v2 operations.
 
 ```bash
 cd agent-tool
@@ -102,6 +146,43 @@ dotnet run -- \
   --endpoint "https://<account>.services.ai.azure.com/api/projects/<project>" \
   --test "What documents are available?"
 ```
+
+### Query sample 1: Direct AI Search index query (ACL trimmed)
+
+Uses the same ACL strategy as existing code/tests: `acl_user_ids` and `acl_group_ids` with `search.ismatch(...)` filters.
+
+```bash
+dotnet run -- \
+  --endpoint "https://<account>.services.ai.azure.com/api/projects/<project>" \
+  --sample direct-search \
+  --query "authentication module" \
+  --search-endpoint "https://<search>.search.windows.net" \
+  --index-name sharepoint-index \
+  --user-ids "11111111-1111-1111-1111-111111111111" \
+  --group-ids "22222222-2222-2222-2222-222222222222" \
+  --top 5
+```
+
+### Query sample 2: Foundry IQ response over ACL-trimmed knowledge
+
+This mode first retrieves ACL-trimmed documents from AI Search, then asks Agent v2 to answer only from that allowed context.
+
+```bash
+dotnet run -- \
+  --endpoint "https://<account>.services.ai.azure.com/api/projects/<project>" \
+  --agent-name sharepoint-knowledge-agent \
+  --sample foundry-iq \
+  --query "What is the onboarding process for contractors?" \
+  --search-endpoint "https://<search>.search.windows.net" \
+  --index-name sharepoint-index \
+  --user-ids "11111111-1111-1111-1111-111111111111" \
+  --group-ids "22222222-2222-2222-2222-222222222222" \
+  --top 5
+```
+
+Authentication for query samples:
+- Default is Entra ID (`DefaultAzureCredential`).
+- Optionally pass `--search-key` for direct Search key authentication.
 
 ## What deploy-foundry.sh creates
 
@@ -170,3 +251,12 @@ Copy `.env.template` to `../.env.private` and fill in your values, or pass varia
 This deployment is independent of `sync/deploy/` and `sync-dotnet/deploy/`.
 The sync code is **unchanged** — `deploy-sync-private.sh` deploys the same code
 into a VNet-integrated Function App that routes traffic through private endpoints.
+
+## Microsoft Learn Sources Used
+
+- Foundry Agent private networking (standard private setup, subnet delegation, managed vs BYO behavior): https://learn.microsoft.com/azure/foundry/agents/how-to/virtual-networks
+- Foundry private link and outbound network isolation context: https://learn.microsoft.com/azure/foundry/how-to/configure-private-link
+- Azure AI Search private endpoint setup: https://learn.microsoft.com/azure/search/service-create-private-endpoint
+- Azure Cosmos DB private endpoints and DNS mapping: https://learn.microsoft.com/azure/cosmos-db/how-to-configure-private-endpoints
+- Azure Storage private endpoints and DNS behavior: https://learn.microsoft.com/azure/storage/common/storage-private-endpoints
+- Azure Private Endpoint DNS zone mapping reference (including Foundry/Search/Storage/Cosmos): https://learn.microsoft.com/azure/private-link/private-endpoint-dns

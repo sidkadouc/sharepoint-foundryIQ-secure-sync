@@ -40,9 +40,39 @@ resource "azurerm_resource_group" "rg" {
   location = var.location
 }
 
+locals {
+  create_vnet = !var.use_existing_vnet
+
+  vnet_id = local.create_vnet ? azurerm_virtual_network.vnet[0].id : var.existing_vnet_id
+
+  subnet_pe_id = local.create_vnet ? azurerm_subnet.pe[0].id : var.existing_subnet_pe_id
+
+  subnet_sync_id = local.create_vnet
+    ? azurerm_subnet.sync[0].id
+    : (var.existing_subnet_sync_id != "" ? var.existing_subnet_sync_id : null)
+
+  subnet_agent_id = local.create_vnet ? azurerm_subnet.agent[0].id : var.existing_subnet_agent_id
+}
+
+resource "terraform_data" "validate_existing_vnet_inputs" {
+  count = var.use_existing_vnet ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition = (
+        var.existing_vnet_id != "" &&
+        var.existing_subnet_pe_id != "" &&
+        var.existing_subnet_agent_id != ""
+      )
+      error_message = "When use_existing_vnet=true, existing_vnet_id, existing_subnet_pe_id, and existing_subnet_agent_id are required."
+    }
+  }
+}
+
 # ── Virtual Network + Subnets ──────────────────────────────────────────────
 
 resource "azurerm_virtual_network" "vnet" {
+  count               = local.create_vnet ? 1 : 0
   name                = var.vnet_name
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
@@ -50,16 +80,18 @@ resource "azurerm_virtual_network" "vnet" {
 }
 
 resource "azurerm_subnet" "pe" {
+  count                = local.create_vnet ? 1 : 0
   name                 = "snet-private-endpoints"
   resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
+  virtual_network_name = azurerm_virtual_network.vnet[0].name
   address_prefixes     = [var.subnet_pe_prefix]
 }
 
 resource "azurerm_subnet" "sync" {
+  count                = local.create_vnet ? 1 : 0
   name                 = "snet-sync"
   resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
+  virtual_network_name = azurerm_virtual_network.vnet[0].name
   address_prefixes     = [var.subnet_sync_prefix]
 
   delegation {
@@ -74,9 +106,10 @@ resource "azurerm_subnet" "sync" {
 }
 
 resource "azurerm_subnet" "agent" {
+  count                = local.create_vnet ? 1 : 0
   name                 = "snet-agent"
   resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
+  virtual_network_name = azurerm_virtual_network.vnet[0].name
   address_prefixes     = [var.subnet_agent_prefix]
 
   delegation {
@@ -164,7 +197,7 @@ resource "azapi_resource" "foundry" {
       networkInjections = [
         {
           scenario                   = "agent"
-          subnetArmId                = azurerm_subnet.agent.id
+          subnetArmId                = local.subnet_agent_id
           useMicrosoftManagedNetwork = false
         }
       ]
@@ -274,7 +307,7 @@ resource "azurerm_private_endpoint" "pe" {
   name                = each.value.name
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  subnet_id           = azurerm_subnet.pe.id
+  subnet_id           = local.subnet_pe_id
 
   private_service_connection {
     name                           = "psc-${each.key}"
@@ -316,6 +349,6 @@ resource "azurerm_private_dns_zone_virtual_network_link" "links" {
   name                  = "link-${replace(each.value, ".", "-")}"
   resource_group_name   = azurerm_resource_group.rg.name
   private_dns_zone_name = azurerm_private_dns_zone.zones[each.value].name
-  virtual_network_id    = azurerm_virtual_network.vnet.id
+  virtual_network_id    = local.vnet_id
   registration_enabled  = false
 }

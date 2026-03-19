@@ -9,5 +9,6 @@
     <PackageReference Include="Azure.AI.Projects" Version="2.0.0-beta.1" />
     <PackageReference Include="Azure.AI.Projects.OpenAI" Version="2.0.0-beta.1" />
     <PackageReference Include="Azure.Identity" Version="1.17.1" />
+    <PackageReference Include="Azure.Search.Documents" Version="11.8.0-beta.1" />
   </ItemGroup>
 </Project>
