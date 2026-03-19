@@ -38,11 +38,16 @@ Reference sample: https://github.com/microsoft-foundry/foundry-samples/tree/main
 
 ## Quick Start
 
+### Option A: Managed Private Networking (quick start)
+
+This mode creates a private VNet and subnets automatically, while keeping Foundry/Storage/Search/Cosmos private:
+
 ```bash
 # 1. Deploy the Foundry instance + all private infrastructure
 export SUBSCRIPTION_ID=<your-sub>
 export LOCATION=swedencentral
 export FOUNDRY_ACCOUNT_NAME=my-foundry
+export NETWORK_MODE=managed-private
 ./deploy-foundry.sh
 
 # 2. Deploy a project with capability host + create agent
@@ -50,6 +55,21 @@ PROJECT_NAME=my-project ./deploy-project.sh
 
 # 3. (Optional) Deploy sync into the VNet
 RUNTIME=python ./deploy-sync-private.sh
+```
+
+### Option B: Bring Your Own VNet (enterprise control)
+
+Use existing network resources and pass subnet IDs:
+
+```bash
+export SUBSCRIPTION_ID=<your-sub>
+export LOCATION=swedencentral
+export NETWORK_MODE=byovnet
+export VNET_ID=/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>
+export SUBNET_PE_ID=/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<private-endpoint-subnet>
+export SUBNET_AGENT_ID=/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/<vnet>/subnets/<agent-subnet>
+
+./deploy-foundry.sh
 ```
 
 ### Multiple projects (shared vs dedicated capability hosts)
@@ -128,11 +148,15 @@ All settings are read from env vars. Source order: `.env` → `.env.private` →
 | `SUBSCRIPTION_ID` | Yes | — | Azure subscription |
 | `RESOURCE_GROUP` | — | `rg-spsync-private` | Resource group name |
 | `LOCATION` | — | `swedencentral` | Region (must support Foundry agents) |
+| `NETWORK_MODE` | — | `managed-private` | `managed-private` or `byovnet` |
 | `FOUNDRY_ACCOUNT_NAME` | — | auto | Foundry (AIServices) account name |
 | `AZURE_STORAGE_ACCOUNT_NAME` | — | auto | Storage account name |
 | `SEARCH_SERVICE_NAME` | — | auto | AI Search service name |
 | `COSMOSDB_ACCOUNT_NAME` | — | auto | Cosmos DB account name |
 | `VNET_NAME` | — | `vnet-spsync` | Virtual network name |
+| `VNET_ID` | By `byovnet` | — | Existing VNet resource ID |
+| `SUBNET_PE_ID` | By `byovnet` | — | Existing private endpoint subnet resource ID |
+| `SUBNET_AGENT_ID` | By `byovnet` | — | Existing agent subnet resource ID (delegated to `Microsoft.App/environments`) |
 | `CHAT_DEPLOYMENT_NAME` | — | `gpt-4o` | Chat model deployment |
 | `EMBEDDING_DEPLOYMENT_NAME` | — | `text-embedding-3-large` | Embedding model |
 | `PROJECT_NAME` | — | `spsync-project` | Foundry project name |

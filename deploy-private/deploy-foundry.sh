@@ -2,8 +2,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 1: Deploy the Foundry instance + private network infrastructure.
 #
-# Creates:  VNet, subnets, Storage, AI Search, Foundry Account (AIServices),
-#           Cosmos DB — all with private endpoints + DNS zones.
+# Modes:
+#   - managed-private: creates VNet + subnets automatically (quick start)
+#   - byovnet: uses an existing VNet + subnet IDs supplied by env vars
+#
+# Creates:  Storage, AI Search, Foundry Account (AIServices), Cosmos DB,
+#           and private endpoints + DNS zones for private access.
 #           Deploys gpt-4o + text-embedding-3-large models.
 #
 # Usage:  ./deploy-foundry.sh
@@ -22,12 +26,32 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SUBSCRIPTION_ID="${SUBSCRIPTION_ID:?SUBSCRIPTION_ID is required}"
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-spsync-private}"
 LOCATION="${LOCATION:-swedencentral}"
+NETWORK_MODE="${NETWORK_MODE:-managed-private}"
+
+if [[ "$NETWORK_MODE" != "managed-private" && "$NETWORK_MODE" != "byovnet" ]]; then
+    echo "[ERROR] NETWORK_MODE must be 'managed-private' or 'byovnet'" >&2
+    exit 1
+fi
 
 VNET_NAME="${VNET_NAME:-vnet-spsync}"
 VNET_ADDRESS_PREFIX="${VNET_ADDRESS_PREFIX:-10.0.0.0/16}"
 SUBNET_PE_PREFIX="${SUBNET_PE_PREFIX:-10.0.1.0/24}"
 SUBNET_SYNC_PREFIX="${SUBNET_SYNC_PREFIX:-10.0.2.0/24}"
 SUBNET_AGENT_PREFIX="${SUBNET_AGENT_PREFIX:-10.0.3.0/24}"
+SUBNET_PE_NAME="${SUBNET_PE_NAME:-snet-private-endpoints}"
+SUBNET_SYNC_NAME="${SUBNET_SYNC_NAME:-snet-sync}"
+SUBNET_AGENT_NAME="${SUBNET_AGENT_NAME:-snet-agent}"
+
+# Required only when NETWORK_MODE=byovnet
+VNET_ID="${VNET_ID:-}"
+SUBNET_PE_ID="${SUBNET_PE_ID:-}"
+SUBNET_AGENT_ID="${SUBNET_AGENT_ID:-}"
+
+if [[ "$NETWORK_MODE" = "byovnet" ]]; then
+    [[ -z "$VNET_ID" ]] && { echo "[ERROR] VNET_ID is required in byovnet mode" >&2; exit 1; }
+    [[ -z "$SUBNET_PE_ID" ]] && { echo "[ERROR] SUBNET_PE_ID is required in byovnet mode" >&2; exit 1; }
+    [[ -z "$SUBNET_AGENT_ID" ]] && { echo "[ERROR] SUBNET_AGENT_ID is required in byovnet mode" >&2; exit 1; }
+fi
 
 # Names (auto-generated from subscription prefix if blank)
 SUFFIX="$(echo "$SUBSCRIPTION_ID" | cut -c1-8 | tr -d '-')"
@@ -49,7 +73,12 @@ echo "╠═══════════════════════�
 echo "║  Subscription:   $SUBSCRIPTION_ID"
 echo "║  Resource Group:  $RESOURCE_GROUP"
 echo "║  Location:        $LOCATION"
+echo "║  Network Mode:    $NETWORK_MODE"
+if [[ "$NETWORK_MODE" = "managed-private" ]]; then
 echo "║  VNet:            $VNET_NAME ($VNET_ADDRESS_PREFIX)"
+else
+echo "║  VNet ID:         $VNET_ID"
+fi
 echo "║  Foundry Account: $FOUNDRY_ACCOUNT_NAME"
 echo "║  Storage:         $AZURE_STORAGE_ACCOUNT_NAME"
 echo "║  AI Search:       $SEARCH_SERVICE_NAME"
@@ -75,31 +104,36 @@ echo "═══ 1/8  Resource Group ═══"
 az group create --name "$RESOURCE_GROUP" --location "$LOCATION" -o none
 echo "[OK] $RESOURCE_GROUP"
 
-# ── 2. Virtual Network + Subnets ──────────────────────────────────────────
+# ── 2. Network setup ───────────────────────────────────────────────────────
 echo ""
-echo "═══ 2/8  Virtual Network ═══"
+echo "═══ 2/8  Network setup ═══"
 
-az network vnet create \
-    --name "$VNET_NAME" -g "$RESOURCE_GROUP" -l "$LOCATION" \
-    --address-prefixes "$VNET_ADDRESS_PREFIX" -o none
+if [[ "$NETWORK_MODE" = "managed-private" ]]; then
+    az network vnet create \
+        --name "$VNET_NAME" -g "$RESOURCE_GROUP" -l "$LOCATION" \
+        --address-prefixes "$VNET_ADDRESS_PREFIX" -o none
 
-az network vnet subnet create \
-    --name "snet-private-endpoints" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" \
-    --address-prefixes "$SUBNET_PE_PREFIX" -o none
+    az network vnet subnet create \
+        --name "$SUBNET_PE_NAME" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" \
+        --address-prefixes "$SUBNET_PE_PREFIX" -o none
 
-az network vnet subnet create \
-    --name "snet-sync" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" \
-    --address-prefixes "$SUBNET_SYNC_PREFIX" \
-    --delegations "Microsoft.Web/serverFarms" -o none
+    az network vnet subnet create \
+        --name "$SUBNET_SYNC_NAME" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" \
+        --address-prefixes "$SUBNET_SYNC_PREFIX" \
+        --delegations "Microsoft.Web/serverFarms" -o none
 
-az network vnet subnet create \
-    --name "snet-agent" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" \
-    --address-prefixes "$SUBNET_AGENT_PREFIX" \
-    --delegations "Microsoft.App/environments" -o none
+    az network vnet subnet create \
+        --name "$SUBNET_AGENT_NAME" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" \
+        --address-prefixes "$SUBNET_AGENT_PREFIX" \
+        --delegations "Microsoft.App/environments" -o none
 
-VNET_ID=$(az network vnet show --name "$VNET_NAME" -g "$RESOURCE_GROUP" --query id -o tsv)
-AGENT_SUBNET_ID=$(az network vnet subnet show --name "snet-agent" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" --query id -o tsv)
-echo "[OK] VNet: $VNET_NAME (3 subnets)"
+    VNET_ID=$(az network vnet show --name "$VNET_NAME" -g "$RESOURCE_GROUP" --query id -o tsv)
+    SUBNET_PE_ID=$(az network vnet subnet show --name "$SUBNET_PE_NAME" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" --query id -o tsv)
+    SUBNET_AGENT_ID=$(az network vnet subnet show --name "$SUBNET_AGENT_NAME" --vnet-name "$VNET_NAME" -g "$RESOURCE_GROUP" --query id -o tsv)
+    echo "[OK] VNet created: $VNET_NAME"
+else
+    echo "[OK] BYO VNet mode: using existing subnet IDs"
+fi
 
 # ── 3. Storage Account ───────────────────────────────────────────────────
 echo ""
@@ -118,7 +152,7 @@ az storage account network-rule update \
 
 az network private-endpoint create \
     --name "pe-${AZURE_STORAGE_ACCOUNT_NAME}-blob" -g "$RESOURCE_GROUP" -l "$LOCATION" \
-    --vnet-name "$VNET_NAME" --subnet "snet-private-endpoints" \
+    --subnet "$SUBNET_PE_ID" \
     --private-connection-resource-id "$STORAGE_ID" \
     --group-ids blob --connection-name "pec-storage-blob" -o none
 
@@ -139,7 +173,7 @@ SEARCH_PRINCIPAL=$(az search service show --name "$SEARCH_SERVICE_NAME" -g "$RES
 
 az network private-endpoint create \
     --name "pe-${SEARCH_SERVICE_NAME}" -g "$RESOURCE_GROUP" -l "$LOCATION" \
-    --vnet-name "$VNET_NAME" --subnet "snet-private-endpoints" \
+    --subnet "$SUBNET_PE_ID" \
     --private-connection-resource-id "$SEARCH_ID" \
     --group-ids searchService --connection-name "pec-search" -o none
 
@@ -162,11 +196,17 @@ az cognitiveservices account create \
 FOUNDRY_ID=$(az cognitiveservices account show -n "$FOUNDRY_ACCOUNT_NAME" -g "$RESOURCE_GROUP" --query id -o tsv)
 FOUNDRY_ENDPOINT=$(az cognitiveservices account show -n "$FOUNDRY_ACCOUNT_NAME" -g "$RESOURCE_GROUP" --query properties.endpoint -o tsv)
 
-# Configure network injection for Standard private Agent setup (BYO VNet)
+# Configure network injection for Standard private Agent setup
+if [[ "$NETWORK_MODE" = "byovnet" ]]; then
+    INJECTION_PAYLOAD="[{\"scenario\":\"agent\",\"subnetArmId\":\"${SUBNET_AGENT_ID}\",\"useMicrosoftManagedNetwork\":false}]"
+else
+    INJECTION_PAYLOAD="[{\"scenario\":\"agent\",\"subnetArmId\":\"${SUBNET_AGENT_ID}\",\"useMicrosoftManagedNetwork\":true}]"
+fi
+
 set +e
 az rest --method PATCH \
     --url "https://management.azure.com${FOUNDRY_ID}?api-version=2025-06-01" \
-    --body "{\"properties\":{\"allowProjectManagement\":true,\"publicNetworkAccess\":\"Disabled\",\"networkInjections\":[{\"scenario\":\"agent\",\"subnetArmId\":\"${AGENT_SUBNET_ID}\",\"useMicrosoftManagedNetwork\":false}]}}" \
+        --body "{\"properties\":{\"allowProjectManagement\":true,\"publicNetworkAccess\":\"Disabled\",\"networkInjections\":${INJECTION_PAYLOAD}}}" \
     -o none
 PATCH_RC=$?
 set -e
@@ -176,7 +216,7 @@ fi
 
 az network private-endpoint create \
     --name "pe-${FOUNDRY_ACCOUNT_NAME}" -g "$RESOURCE_GROUP" -l "$LOCATION" \
-    --vnet-name "$VNET_NAME" --subnet "snet-private-endpoints" \
+    --subnet "$SUBNET_PE_ID" \
     --private-connection-resource-id "$FOUNDRY_ID" \
     --group-ids account --connection-name "pec-foundry" -o none
 
@@ -218,7 +258,7 @@ COSMOS_ID=$(az cosmosdb show -n "$COSMOSDB_ACCOUNT_NAME" -g "$RESOURCE_GROUP" --
 
 az network private-endpoint create \
     --name "pe-${COSMOSDB_ACCOUNT_NAME}" -g "$RESOURCE_GROUP" -l "$LOCATION" \
-    --vnet-name "$VNET_NAME" --subnet "snet-private-endpoints" \
+    --subnet "$SUBNET_PE_ID" \
     --private-connection-resource-id "$COSMOS_ID" \
     --group-ids Sql --connection-name "pec-cosmos" -o none
 
@@ -307,6 +347,7 @@ RESOURCE_GROUP=$RESOURCE_GROUP
 LOCATION=$LOCATION
 VNET_NAME=$VNET_NAME
 VNET_ID=$VNET_ID
+NETWORK_MODE=$NETWORK_MODE
 FOUNDRY_ACCOUNT_NAME=$FOUNDRY_ACCOUNT_NAME
 FOUNDRY_ID=$FOUNDRY_ID
 FOUNDRY_ENDPOINT=$FOUNDRY_ENDPOINT
@@ -317,7 +358,8 @@ SEARCH_ID=$SEARCH_ID
 SEARCH_PRINCIPAL=$SEARCH_PRINCIPAL
 COSMOSDB_ACCOUNT_NAME=$COSMOSDB_ACCOUNT_NAME
 COSMOS_ID=$COSMOS_ID
-AGENT_SUBNET_ID=$AGENT_SUBNET_ID
+SUBNET_PE_ID=$SUBNET_PE_ID
+SUBNET_AGENT_ID=$SUBNET_AGENT_ID
 EMBEDDING_DEPLOYMENT_NAME=$EMBEDDING_DEPLOYMENT_NAME
 CHAT_DEPLOYMENT_NAME=$CHAT_DEPLOYMENT_NAME
 AZURE_BLOB_CONTAINER_NAME=$AZURE_BLOB_CONTAINER_NAME
