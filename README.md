@@ -18,7 +18,9 @@ A production-ready, reusable pipeline that syncs files from SharePoint Online to
 
 ## Architecture
 
-![Solution architecture](docs/architecture-diagram.svg)
+<p align="center">
+  <img src="docs/architecture-diagram.svg" alt="Solution architecture" width="100%" style="max-width: 100%;">
+</p>
 
 <details>
 <summary>Architecture details</summary>
