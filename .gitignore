@@ -24,6 +24,25 @@ wheels/
 venv/
 ENV/
 
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+package-lock.json
+
+# .NET
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+*.user
+*.suo
+*.cache
+project.lock.json
+
 # IDE
 .idea/
 .vscode/
@@ -36,6 +55,20 @@ ENV/
 
 # Logs
 *.log
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Archives / deploy artifacts
+*.zip
+*.tar.gz
+
+# pytest / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
 
 # Generated files
 deploy/function-app/
@@ -58,3 +91,4 @@ deploy-private/terraform/.terraform.lock.hcl
 deploy-private/terraform/terraform.tfstate*
 deploy-private/terraform/terraform.tfvars
 deploy-private/terraform/*.auto.tfvars
+*-submission.md
