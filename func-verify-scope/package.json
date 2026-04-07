@@ -1,0 +1,16 @@
+{
+  "name": "func-verify-scope",
+  "version": "1.0.0",
+  "description": "Azure Function to verify Sites.Selected scope on Managed Identity",
+  "main": "src/functions/*.js",
+  "scripts": {
+    "start": "func start"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "@azure/identity": "^4.5.0"
+  }
+}

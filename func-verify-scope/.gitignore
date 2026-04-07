@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+.build/
+
+# Azure Functions
+bin/
+obj/
+local.settings.json
+
+# Runtime & logs
+*.js.map
+*.tsbuildinfo
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS files
+Thumbs.db
+.DS_Store
