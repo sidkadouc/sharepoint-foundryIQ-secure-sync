@@ -1,12 +1,27 @@
-# SharePoint to Azure Blob Storage Sync with AI Search
+# Secure Foundry IQ Integration with SharePoint — Dual-Layer ACL & Purview-Aware Knowledge Pipeline
 
-Sync files from SharePoint Online to Azure Blob Storage with permissions (ACLs), index them in Azure AI Search, and query with document-level security.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Azure AI Search](https://img.shields.io/badge/Azure%20AI%20Search-GA-blue)](https://learn.microsoft.com/azure/search/)
+[![Foundry IQ](https://img.shields.io/badge/Foundry%20IQ-Agentic%20Retrieval-purple)](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/what-is-foundry-iq)
+
+A production-ready, reusable pipeline that syncs files from SharePoint Online to Azure Blob Storage with **dual-layer document security** (SharePoint ACLs ∩ Microsoft Purview/RMS), indexes them in Azure AI Search with OCR, chunking, and vector embeddings, and enables secure AI search with Entra ID-based filtering — ready for Foundry IQ agentic retrieval.
+
+## Features
+
+- **Dual-layer ACLs** — effective access = SharePoint permissions ∩ Purview RMS permissions
+- **Incremental sync** — delta API and hash-based change detection for files and permissions
+- **Purview-aware** — sensitivity label detection, RMS rights extraction, encrypted file handling
+- **Production-grade** — async I/O, structured logging, graceful error handling, containerized
+- **Private network ready** — full VNet integration with Private Endpoints, UDR + Azure Firewall
+- **Agentic retrieval** — cross-site enterprise search via Foundry IQ knowledge bases
+- **Two implementations** — Python and C# .NET, same features, your choice
 
 ## Architecture
 
-![Solution architecture flows](docs/diagrams/solution-flows.svg)
+![Solution architecture](docs/architecture-diagram.svg)
 
-Editable source: [docs/diagrams/solution-flows.mmd](docs/diagrams/solution-flows.mmd)
+<details>
+<summary>Architecture details</summary>
 
 Ingestion flow (SharePoint to AI Search):
 1. The sync runtime reads file and permission deltas from SharePoint.
@@ -23,6 +38,10 @@ Query flow (Foundry agent with document security):
 Network flow:
 - Inbound to AI Search is restricted to Private Endpoint paths.
 - Outbound from the sync runtime to SharePoint Online is forced through UDR and Azure Firewall.
+
+Editable source: [docs/diagrams/solution-flows.mmd](docs/diagrams/solution-flows.mmd) | [docs/architecture-diagram.drawio](docs/architecture-diagram.drawio)
+
+</details>
 
 ## Components
 
@@ -183,17 +202,17 @@ Both `sync/` (Python) and `sync-dotnet/` (C#) include deploy scripts for Azure F
 
 **Docker (Python):**
 ```bash
-cd sync && docker build -t sharepoint-sync:latest .
+cd src/sync && docker build -t sharepoint-sync:latest .
 docker run --env-file .env sharepoint-sync:latest
 ```
 
 **Docker (.NET):**
 ```bash
-cd sync-dotnet && docker build -t sharepoint-sync-dotnet:latest .
+cd src/sync-dotnet && docker build -t sharepoint-sync-dotnet:latest .
 docker run --env-file ../.env sharepoint-sync-dotnet:latest
 ```
 
-**Azure Function App or ACA Job:** See [sync/deploy/README.md](sync/deploy/README.md) or [sync-dotnet/deploy/README.md](sync-dotnet/deploy/README.md)
+**Azure Function App or ACA Job:** See [src/sync/deploy/README.md](src/sync/deploy/README.md) or [src/sync-dotnet/deploy/README.md](src/sync-dotnet/deploy/README.md)
 ## Next Step: Cross-Site Agentic Search with Foundry IQ
 
 This pipeline syncs and secures individual SharePoint sites. The natural evolution is **cross-site AI search** using [Azure AI Search Agentic Retrieval](https://learn.microsoft.com/azure/search/agentic-retrieval-overview) and [Foundry IQ](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/what-is-foundry-iq):
@@ -212,7 +231,7 @@ See **[docs/agentic-retrieval-foundry-iq.md](docs/agentic-retrieval-foundry-iq.m
 Deploy all resources behind a VNet with private endpoints, plus a Foundry Agent (v2) connected to the AI Search knowledge base:
 
 ```bash
-cd deploy-private
+cd infra/deploy-private
 
 # Step 1: Foundry instance + VNet + all private resources
 ./deploy-foundry.sh
@@ -224,8 +243,32 @@ PROJECT_NAME=my-project ./deploy-project.sh
 RUNTIME=python ./deploy-sync-private.sh
 ```
 
-See [deploy-private/README.md](deploy-private/README.md) for full details, Terraform option, and multi-project setup.
+See [infra/deploy-private/README.md](infra/deploy-private/README.md) for full details, Terraform option, and multi-project setup.
+
+## Resources
+
+- [Azure AI Search documentation](https://learn.microsoft.com/azure/search/)
+- [Agentic Retrieval overview](https://learn.microsoft.com/azure/search/agentic-retrieval-overview)
+- [Foundry IQ](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/what-is-foundry-iq)
+- [Microsoft Graph delta API](https://learn.microsoft.com/graph/delta-query-overview)
+- [Microsoft Purview sensitivity labels](https://learn.microsoft.com/purview/sensitivity-labels)
+
+## Contributing
+
+This project welcomes contributions and suggestions. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+Most contributions require you to agree to a Contributor License Agreement (CLA). For details, visit [https://cla.opensource.microsoft.com](https://cla.opensource.microsoft.com).
+
+This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
+
+## Trademarks
+
+This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft
+trademarks or logos is subject to and must follow
+[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/legal/intellectualproperty/trademarks/usage/general).
+Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
+Any use of third-party trademarks or logos are subject to those third-party's policies.
 
 ## License
 
-MIT
+This project is licensed under the [MIT License](LICENSE).

@@ -52,6 +52,11 @@ project.lock.json
 # Environment variables
 .env
 .env.local
+.env.*.local
+local.settings.json
+
+# Azure
+.azure/
 
 # Logs
 *.log
