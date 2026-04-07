@@ -52,10 +52,10 @@ echo "============================================================"
 echo "  Step 1: Syncing SharePoint to Blob Storage"
 echo "============================================================"
 
-cd sync
+cd src/sync
 pip install -q -r requirements.txt
 python main.py 2>&1 | tail -5
-cd ..
+cd ../..
 
 echo "✓ SharePoint sync completed"
 
@@ -110,10 +110,10 @@ create_component() {
 }
 
 # Create components in order
-create_component "datasources" "${DATASOURCE_NAME}" "ai-search/datasource.json"
-create_component "indexes" "${INDEX_NAME}" "ai-search/index.json"
-create_component "skillsets" "${SKILLSET_NAME}" "ai-search/skillset.json"
-create_component "indexers" "${INDEXER_NAME}" "ai-search/indexer.json"
+create_component "datasources" "${DATASOURCE_NAME}" "infra/ai-search/datasource.json"
+create_component "indexes" "${INDEX_NAME}" "infra/ai-search/index.json"
+create_component "skillsets" "${SKILLSET_NAME}" "infra/ai-search/skillset.json"
+create_component "indexers" "${INDEXER_NAME}" "infra/ai-search/indexer.json"
 
 echo "✓ AI Search components created"
 

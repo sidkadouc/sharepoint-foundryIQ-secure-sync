@@ -65,7 +65,7 @@ Write-Host "============================================================" -Foreg
 Write-Host "  Step 1: Syncing SharePoint to Blob Storage" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
-Push-Location sync
+Push-Location src/sync
 pip install -q -r requirements.txt
 python main.py 2>&1 | Select-Object -Last 5
 Pop-Location
@@ -122,10 +122,10 @@ function New-SearchComponent {
     }
 }
 
-New-SearchComponent -Type "datasources" -Name $env:DATASOURCE_NAME -FilePath "ai-search/datasource.json"
-New-SearchComponent -Type "indexes" -Name $env:INDEX_NAME -FilePath "ai-search/index.json"
-New-SearchComponent -Type "skillsets" -Name $env:SKILLSET_NAME -FilePath "ai-search/skillset.json"
-New-SearchComponent -Type "indexers" -Name $env:INDEXER_NAME -FilePath "ai-search/indexer.json"
+New-SearchComponent -Type "datasources" -Name $env:DATASOURCE_NAME -FilePath "infra/ai-search/datasource.json"
+New-SearchComponent -Type "indexes" -Name $env:INDEX_NAME -FilePath "infra/ai-search/index.json"
+New-SearchComponent -Type "skillsets" -Name $env:SKILLSET_NAME -FilePath "infra/ai-search/skillset.json"
+New-SearchComponent -Type "indexers" -Name $env:INDEXER_NAME -FilePath "infra/ai-search/indexer.json"
 
 Write-Host "✓ AI Search components created" -ForegroundColor Green
 

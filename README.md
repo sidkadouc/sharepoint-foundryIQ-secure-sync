@@ -28,12 +28,13 @@ Network flow:
 
 | Directory | Description | README |
 |-----------|-------------|--------|
-| [sync/](sync/) | SharePoint → Blob sync job — Python (delta API, permissions) | [sync/README.md](sync/README.md) |
-| [sync-dotnet/](sync-dotnet/) | SharePoint → Blob sync job — C# .NET (same features) | [sync-dotnet/README.md](sync-dotnet/README.md) |
-| [ai-search/](ai-search/) | Search index, skillset, indexer deployment | [ai-search/README.md](ai-search/README.md) |
-| [demo/](demo/) | Flask web app — Entra ID login + ACL-filtered search | [demo/README.md](demo/README.md) |
+| [src/sync/](src/sync/) | SharePoint → Blob sync job — Python (delta API, permissions) | [src/sync/README.md](src/sync/README.md) |
+| [src/sync-dotnet/](src/sync-dotnet/) | SharePoint → Blob sync job — C# .NET (same features) | [src/sync-dotnet/README.md](src/sync-dotnet/README.md) |
+| [src/demo/](src/demo/) | Flask web app — Entra ID login + ACL-filtered search | [src/demo/README.md](src/demo/README.md) |
+| [src/func-verify-scope/](src/func-verify-scope/) | Azure Function — verify SharePoint Sites.Selected scope | [src/func-verify-scope/README.md](src/func-verify-scope/README.md) |
+| [infra/ai-search/](infra/ai-search/) | Search index, skillset, indexer deployment | [infra/ai-search/README.md](infra/ai-search/README.md) |
+| [infra/deploy-private/](infra/deploy-private/) | Private VNet deployment — Foundry Agent v2 + all resources behind PEs | [infra/deploy-private/README.md](infra/deploy-private/README.md) |
 | [tests/](tests/) | Search verification scripts | [tests/README.md](tests/README.md) |
-| [deploy-private/](deploy-private/) | Private VNet deployment — Foundry Agent v2 + all resources behind PEs | [deploy-private/README.md](deploy-private/README.md) |
 | [docs/](docs/) | Architecture & deep-dives (Purview/RMS, Agentic Retrieval) | See below |
 
 ### Documentation
@@ -67,17 +68,17 @@ This syncs files, deploys search components, waits for indexing, and runs tests.
 
 ```bash
 # Python sync
-cd sync && python main.py
+cd src/sync && python main.py
 
 # .NET sync (build first, then run DLL directly)
-cd sync-dotnet && dotnet build
+cd src/sync-dotnet && dotnet build
 dotnet src/SharePointSync.Job/bin/Debug/net10.0/SharePointSync.Job.dll
 
 # Deploy search
-cd ai-search && ./script.ps1 ...
+cd infra/ai-search && ./script.ps1 ...
 
 # Demo app
-cd demo && python app.py
+cd src/demo && python app.py
 
 # Tests
 cd tests && python test_search.py
