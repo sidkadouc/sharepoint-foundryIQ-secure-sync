@@ -76,8 +76,8 @@ Set these in `.env` (root or `sync/`) or as environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ACR_NAME` | — | ACR registry name (builds image via ACR Tasks) |
-| `IMAGE_NAME` | — | Pre-built image (skip ACR build) |
+| `ACR_NAME` | (required for ACA) | ACR registry name (builds image via ACR Tasks) |
+| `IMAGE_NAME` | (optional) | Pre-built image (skip ACR build) |
 | `ACA_JOB_TRIGGER_TYPE` | `Schedule` | `Schedule` or `Manual` |
 
 ## Post-Deployment

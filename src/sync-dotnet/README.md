@@ -4,19 +4,19 @@ C# implementation of the SharePoint-to-Blob sync job. Functionally identical to 
 
 ## Features
 
-- **Delta (incremental) sync** — only downloads files changed since the last run
-- **Delta token persistence** — stores the Graph delta token in blob storage
-- **Delete detection** — removes blobs for files deleted in SharePoint
-- **Permission sync** — exports SharePoint ACLs as blob metadata (`user_ids`, `group_ids`)
-- **Full sync fallback** — set `FORCE_FULL_SYNC=true` to bypass delta
-- **Dual mode** — runs as Azure Function (timer trigger) or console app (ACA Job / local)
+- **Delta (incremental) sync**: only downloads files changed since the last run
+- **Delta token persistence**: stores the Graph delta token in blob storage
+- **Delete detection**: removes blobs for files deleted in SharePoint
+- **Permission sync**: exports SharePoint ACLs as blob metadata (`user_ids`, `group_ids`)
+- **Full sync fallback**: set `FORCE_FULL_SYNC=true` to bypass delta
+- **Dual mode**: runs as Azure Function (timer trigger) or console app (ACA Job / local)
 
 ## Project Structure
 
 | Path | Description |
 |------|-------------|
 | `src/SharePointSync.Core/` | Core sync logic (clients, models, config) |
-| `src/SharePointSync.Job/` | Entry point — Function host or console runner |
+| `src/SharePointSync.Job/` | Entry point: Function host or console runner |
 | `tests/SharePointSync.Tests/` | Unit tests |
 | `deploy/` | Deployment scripts for Function App + ACA Job |
 | `Dockerfile` | Multi-stage container build |
@@ -40,12 +40,12 @@ Same as the [Python sync](../sync/README.md#environment-variables):
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SHAREPOINT_SITE_URL` | Yes | — | e.g. `https://contoso.sharepoint.com/sites/MySite` |
+| `SHAREPOINT_SITE_URL` | Yes | (required) | e.g. `https://contoso.sharepoint.com/sites/MySite` |
 | `SHAREPOINT_DRIVE_NAME` | No | `Documents` | Document library name |
 | `SHAREPOINT_FOLDER_PATH` | No | `/` | Folder path to sync |
-| `AZURE_STORAGE_ACCOUNT_NAME` | Yes | — | Storage account name |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Yes | (required) | Storage account name |
 | `AZURE_BLOB_CONTAINER_NAME` | No | `sharepoint-sync` | Container name |
-| `AZURE_BLOB_PREFIX` | No | — | Prefix for all blobs |
+| `AZURE_BLOB_PREFIX` | No | (empty) | Prefix for all blobs |
 | `DELETE_ORPHANED_BLOBS` | No | `false` | Delete blobs removed from SharePoint |
 | `DRY_RUN` | No | `false` | Preview without changes |
 | `SYNC_PERMISSIONS` | No | `false` | Export SharePoint permissions to blob metadata |

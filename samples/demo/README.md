@@ -1,6 +1,6 @@
-# Demo — ACL-Filtered Search with Entra ID Login
+# Demo: ACL-Filtered Search with Entra ID Login
 
-Flask web app demonstrating document-level security in Azure AI Search. Users sign in via Entra ID, and search results are filtered by their group memberships — they only see documents they have access to.
+Flask web app demonstrating document-level security in Azure AI Search. Users sign in via Entra ID, and search results are filtered by their group memberships so they only see documents they have access to.
 
 ## How It Works
 
@@ -21,7 +21,7 @@ No Graph API call needed for groups. No admin consent required.
 
 ## App Registration Setup (No Admin Consent)
 
-### Step 1 — Create the app registration
+### Step 1: Create the app registration
 
 ```bash
 az ad app create \
@@ -31,14 +31,14 @@ az ad app create \
 # Note the appId → DEMO_CLIENT_ID
 ```
 
-### Step 2 — Add a client secret
+### Step 2: Add a client secret
 
 ```bash
 az ad app credential reset --id <app-id> --display-name "demo-secret"
 # Note the password → DEMO_CLIENT_SECRET
 ```
 
-### Step 3 — API permissions
+### Step 3: API permissions
 
 Only one permission needed:
 
@@ -46,11 +46,11 @@ Only one permission needed:
 |------------|------|----------------|
 | `User.Read` | Delegated | **No** |
 
-### Step 4 — Enable group claims in the token
+### Step 4: Enable group claims in the token
 
 This is the key step that avoids needing `GroupMember.Read.All` (admin consent). Set `groupMembershipClaims` so Entra ID embeds group IDs directly in the ID token.
 
-**Option A — Azure Portal (Manifest editor):**
+**Option A - Azure Portal (Manifest editor):**
 
 1. Go to **Azure Portal → Microsoft Entra ID → App registrations**
 2. Select your app
@@ -62,7 +62,7 @@ This is the key step that avoids needing `GroupMember.Read.All` (admin consent).
    ```
 6. Click **Save**
 
-**Option B — Azure Portal (Token configuration UI):**
+**Option B - Azure Portal (Token configuration UI):**
 
 1. Go to **App registrations → your app → Token configuration**
 2. Click **+ Add groups claim**
@@ -70,7 +70,7 @@ This is the key step that avoids needing `GroupMember.Read.All` (admin consent).
 4. For **ID** tokens, select **Group ID**
 5. Click **Add**
 
-**Option C — Azure CLI:**
+**Option C - Azure CLI:**
 
 ```bash
 az rest --method PATCH \
@@ -81,7 +81,7 @@ az rest --method PATCH \
 
 > **Verify:** Check **Manifest** → `"groupMembershipClaims": "SecurityGroup"` is set.
 
-### Step 5 — Environment variables
+### Step 5: Environment variables
 
 ```bash
 # In your .env file
@@ -102,10 +102,10 @@ Our approach (user consent only):
   → Entra includes "groups" claim in the ID token
      (because groupMembershipClaims = "SecurityGroup")
   → App reads group IDs from id_token_claims["groups"]
-  ✅ Only User.Read — any user can consent
+  ✅ Only User.Read, any user can consent
 ```
 
-The `groupMembershipClaims` manifest setting is a **tenant-level app configuration**, not a permission — it doesn't require admin consent at login time.
+The `groupMembershipClaims` manifest setting is a **tenant-level app configuration**, not a permission. It doesn't require admin consent at login time.
 
 **ID token example:**
 ```json

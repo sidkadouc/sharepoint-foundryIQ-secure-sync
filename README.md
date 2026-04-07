@@ -1,20 +1,20 @@
-# Secure Foundry IQ Integration with SharePoint — Dual-Layer ACL & Purview-Aware Knowledge Pipeline
+# Secure Foundry IQ Integration with SharePoint: Dual-Layer ACL & Purview-Aware Knowledge Pipeline
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Azure AI Search](https://img.shields.io/badge/Azure%20AI%20Search-GA-blue)](https://learn.microsoft.com/azure/search/)
 [![Foundry IQ](https://img.shields.io/badge/Foundry%20IQ-Agentic%20Retrieval-purple)](https://learn.microsoft.com/azure/ai-foundry/agents/concepts/what-is-foundry-iq)
 
-A production-ready, reusable pipeline that syncs files from SharePoint Online to Azure Blob Storage with **dual-layer document security** (SharePoint ACLs ∩ Microsoft Purview/RMS), indexes them in Azure AI Search with OCR, chunking, and vector embeddings, and enables secure AI search with Entra ID-based filtering — ready for Foundry IQ agentic retrieval.
+A production-ready, reusable pipeline that syncs files from SharePoint Online to Azure Blob Storage with **dual-layer document security** (SharePoint ACLs ∩ Microsoft Purview/RMS), indexes them in Azure AI Search with OCR, chunking, and vector embeddings, and enables secure AI search with Entra ID-based filtering, ready for Foundry IQ agentic retrieval.
 
 ## Features
 
-- **Dual-layer ACLs** — effective access = SharePoint permissions ∩ Purview RMS permissions
-- **Incremental sync** — delta API and hash-based change detection for files and permissions
-- **Purview-aware** — sensitivity label detection, RMS rights extraction, encrypted file handling
-- **Production-grade** — async I/O, structured logging, graceful error handling, containerized
-- **Private network ready** — full VNet integration with Private Endpoints, UDR + Azure Firewall
-- **Agentic retrieval** — cross-site enterprise search via Foundry IQ knowledge bases
-- **Two implementations** — Python and C# .NET, same features, your choice
+- **Dual-layer ACLs**: effective access = SharePoint permissions ∩ Purview RMS permissions
+- **Incremental sync**: delta API and hash-based change detection for files and permissions
+- **Purview-aware**: sensitivity label detection, RMS rights extraction, encrypted file handling
+- **Production-grade**: async I/O, structured logging, graceful error handling, containerized
+- **Private network ready**: full VNet integration with Private Endpoints, UDR + Azure Firewall
+- **Agentic retrieval**: cross-site enterprise search via Foundry IQ knowledge bases
+- **Two implementations**: Python and C# .NET, same features, your choice
 
 ## Architecture
 
@@ -47,14 +47,14 @@ Editable source: [docs/diagrams/solution-flows.mmd](docs/diagrams/solution-flows
 
 | Directory | Description | README |
 |-----------|-------------|--------|
-| [src/sync/](src/sync/) | SharePoint → Blob sync job — Python (delta API, permissions) | [src/sync/README.md](src/sync/README.md) |
-| [src/sync-dotnet/](src/sync-dotnet/) | SharePoint → Blob sync job — C# .NET (same features) | [src/sync-dotnet/README.md](src/sync-dotnet/README.md) |
-| [src/demo/](src/demo/) | Flask web app — Entra ID login + ACL-filtered search | [src/demo/README.md](src/demo/README.md) |
-| [src/func-verify-scope/](src/func-verify-scope/) | Azure Function — verify SharePoint Sites.Selected scope | [src/func-verify-scope/README.md](src/func-verify-scope/README.md) |
-| [infra/ai-search/](infra/ai-search/) | Search index, skillset, indexer deployment | [infra/ai-search/README.md](infra/ai-search/README.md) |
-| [infra/deploy-private/](infra/deploy-private/) | Private VNet deployment — Foundry Agent v2 + all resources behind PEs | [infra/deploy-private/README.md](infra/deploy-private/README.md) |
-| [tests/](tests/) | Search verification scripts | [tests/README.md](tests/README.md) |
-| [docs/](docs/) | Architecture & deep-dives (Purview/RMS, Agentic Retrieval) | See below |
+| [src/sync/](src/sync/) | Python sync engine: delta queries, permissions extraction, Purview/RMS integration | [src/sync/README.md](src/sync/README.md) |
+| [src/sync-dotnet/](src/sync-dotnet/) | C# .NET port of the sync engine (same features, same env vars) | [src/sync-dotnet/README.md](src/sync-dotnet/README.md) |
+| [infra/ai-search/](infra/ai-search/) | AI Search index, skillset (OCR + chunking + embeddings), indexer deployment scripts | [infra/ai-search/README.md](infra/ai-search/README.md) |
+| [infra/deploy-private/](infra/deploy-private/) | Terraform + scripts for full VNet deployment with Private Endpoints and Foundry Agent v2 | [infra/deploy-private/README.md](infra/deploy-private/README.md) |
+| [samples/demo/](samples/demo/) | Flask web app showing Entra ID login with ACL-filtered hybrid search | [samples/demo/README.md](samples/demo/README.md) |
+| [samples/func-verify-scope/](samples/func-verify-scope/) | Azure Function to validate `Sites.Selected` Graph permissions on a SharePoint site | [samples/func-verify-scope/README.md](samples/func-verify-scope/README.md) |
+| [tests/](tests/) | End-to-end and integration tests for search, permissions, and Purview labels | [tests/README.md](tests/README.md) |
+| [docs/](docs/) | Architecture diagrams, Purview/RMS deep-dive, Agentic Retrieval guide | See below |
 
 ### Documentation
 
@@ -97,7 +97,7 @@ dotnet src/SharePointSync.Job/bin/Debug/net10.0/SharePointSync.Job.dll
 cd infra/ai-search && ./script.ps1 ...
 
 # Demo app
-cd src/demo && python app.py
+cd samples/demo && python app.py
 
 # Tests
 cd tests && python test_search.py
@@ -166,7 +166,7 @@ When `SYNC_PURVIEW_PROTECTION=true`, the sync pipeline:
 
 1. **Reads sensitivity labels** from each SharePoint file via Microsoft Graph
 2. **Detects RMS encryption** and extracts usage rights (VIEW, EDIT, EXPORT, etc.)
-3. **Computes dual-layer ACLs** — effective access = SharePoint permissions ∩ RMS permissions
+3. **Computes dual-layer ACLs**: effective access = SharePoint permissions ∩ RMS permissions
 4. **Writes Purview metadata** to blob storage:
 
 | Blob Metadata Key | Value |
@@ -182,8 +182,8 @@ When `SYNC_PURVIEW_PROTECTION=true`, the sync pipeline:
 
 Your Azure AD app registration needs these additional Graph API permissions for Purview:
 
-- `Files.Read.All` — Read files and sensitivity labels on items
-- `InformationProtectionPolicy.Read.All` — Read label definitions and RMS policies
+- `Files.Read.All` - Read files and sensitivity labels on items
+- `InformationProtectionPolicy.Read.All` - Read label definitions and RMS policies
 
 > **Note**: If using `Sites.Selected` scope, add the service principal as an **RMS Super User** to decrypt RMS-protected files. See [docs/purview-rms-explained.md](docs/purview-rms-explained.md) for setup details.
 
@@ -222,7 +222,7 @@ This pipeline syncs and secures individual SharePoint sites. The natural evoluti
 - **Create a Foundry IQ knowledge base** → combines all sources with LLM-powered query planning
 - **Connect to Foundry Agent Service** → agents decompose complex questions into parallel subqueries across all sites, with full permission enforcement
 
-Example: *"Compare the data retention policy from Legal with the GDPR checklist on Compliance and tell me if we have any gaps"* → the agent targets each site's knowledge source, merges results, and synthesizes a gap analysis — all respecting per-document ACLs and Purview sensitivity labels.
+Example: *"Compare the data retention policy from Legal with the GDPR checklist on Compliance and tell me if we have any gaps"* → the agent targets each site's knowledge source, merges results, and synthesizes a gap analysis, all respecting per-document ACLs and Purview sensitivity labels.
 
 See **[docs/agentic-retrieval-foundry-iq.md](docs/agentic-retrieval-foundry-iq.md)** for detailed architecture, 5 real-world enterprise scenarios, and getting-started code.
 

@@ -1,7 +1,7 @@
 # Private Network Deployment
 
 Deploy all resources behind a private VNet with private endpoints, plus a Foundry Agent (v2) connected to a knowledge base.
-This is an **alternative** to the public deployment in `sync/deploy/` — existing scripts remain unchanged.
+This is an **alternative** to the public deployment in `sync/deploy/`. Existing scripts remain unchanged.
 The sync runtime uses **managed identity / federated identity** for secretless authentication.
 
 ## Architecture
@@ -188,13 +188,13 @@ Authentication for query samples:
 
 | Resource | Private | Purpose |
 |---|---|---|
-| VNet + 3 subnets | — | Network isolation |
+| VNet + 3 subnets | N/A | Network isolation |
 | Storage Account + PE | default-action Deny | Blob storage for synced files |
 | AI Search + PE | public-access disabled | Vector index with ACL filtering |
 | Foundry Account (AIServices) + PE | PE via cognitiveservices | Models + agent host |
 | Cosmos DB + PE | public disabled | Thread/file storage for agents |
-| Private DNS zones | — | Internal name resolution |
-| gpt-4o + text-embedding-3-large | — | Model deployments |
+| Private DNS zones | N/A | Internal name resolution |
+| gpt-4o + text-embedding-3-large | N/A | Model deployments |
 
 ## What deploy-project.sh creates
 
@@ -226,30 +226,30 @@ All settings are read from env vars. Source order: `.env` → `.env.private` →
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `SUBSCRIPTION_ID` | Yes | — | Azure subscription |
-| `RESOURCE_GROUP` | — | `rg-spsync-private` | Resource group name |
-| `LOCATION` | — | `swedencentral` | Region (must support Foundry agents) |
-| `NETWORK_MODE` | — | `managed-private` | `managed-private` or `byovnet` |
-| `FOUNDRY_ACCOUNT_NAME` | — | auto | Foundry (AIServices) account name |
-| `AZURE_STORAGE_ACCOUNT_NAME` | — | auto | Storage account name |
-| `SEARCH_SERVICE_NAME` | — | auto | AI Search service name |
-| `COSMOSDB_ACCOUNT_NAME` | — | auto | Cosmos DB account name |
-| `VNET_NAME` | — | `vnet-spsync` | Virtual network name |
-| `VNET_ID` | By `byovnet` | — | Existing VNet resource ID |
-| `SUBNET_PE_ID` | By `byovnet` | — | Existing private endpoint subnet resource ID |
-| `SUBNET_AGENT_ID` | By `byovnet` | — | Existing agent subnet resource ID (delegated to `Microsoft.App/environments`) |
-| `CHAT_DEPLOYMENT_NAME` | — | `gpt-4o` | Chat model deployment |
-| `EMBEDDING_DEPLOYMENT_NAME` | — | `text-embedding-3-large` | Embedding model |
-| `PROJECT_NAME` | — | `spsync-project` | Foundry project name |
-| `SHARED_CAPHOST` | — | `false` | Use shared (account-level) capability host |
-| `INDEX_NAME` | — | `sharepoint-index` | AI Search index name |
+| `SUBSCRIPTION_ID` | Yes | N/A | Azure subscription |
+| `RESOURCE_GROUP` | No | `rg-spsync-private` | Resource group name |
+| `LOCATION` | No | `swedencentral` | Region (must support Foundry agents) |
+| `NETWORK_MODE` | No | `managed-private` | `managed-private` or `byovnet` |
+| `FOUNDRY_ACCOUNT_NAME` | No | auto | Foundry (AIServices) account name |
+| `AZURE_STORAGE_ACCOUNT_NAME` | No | auto | Storage account name |
+| `SEARCH_SERVICE_NAME` | No | auto | AI Search service name |
+| `COSMOSDB_ACCOUNT_NAME` | No | auto | Cosmos DB account name |
+| `VNET_NAME` | No | `vnet-spsync` | Virtual network name |
+| `VNET_ID` | By `byovnet` | N/A | Existing VNet resource ID |
+| `SUBNET_PE_ID` | By `byovnet` | N/A | Existing private endpoint subnet resource ID |
+| `SUBNET_AGENT_ID` | By `byovnet` | N/A | Existing agent subnet resource ID (delegated to `Microsoft.App/environments`) |
+| `CHAT_DEPLOYMENT_NAME` | No | `gpt-4o` | Chat model deployment |
+| `EMBEDDING_DEPLOYMENT_NAME` | No | `text-embedding-3-large` | Embedding model |
+| `PROJECT_NAME` | No | `spsync-project` | Foundry project name |
+| `SHARED_CAPHOST` | No | `false` | Use shared (account-level) capability host |
+| `INDEX_NAME` | No | `sharepoint-index` | AI Search index name |
 
 Copy `.env.template` to `../.env.private` and fill in your values, or pass variables as exports.
 
 ## Relation to existing deployments
 
 This deployment is independent of `sync/deploy/` and `sync-dotnet/deploy/`.
-The sync code is **unchanged** — `deploy-sync-private.sh` deploys the same code
+The sync code is **unchanged**: `deploy-sync-private.sh` deploys the same code
 into a VNet-integrated Function App that routes traffic through private endpoints.
 
 ## Microsoft Learn Sources Used

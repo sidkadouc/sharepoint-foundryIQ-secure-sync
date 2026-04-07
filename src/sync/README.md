@@ -4,12 +4,12 @@ Python job that syncs files from a SharePoint document library to Azure Blob Sto
 
 ## Features
 
-- **Delta (incremental) sync** — only downloads files changed since the last run
-- **Delta token persistence** — stores the Graph delta token in blob storage
-- **Delete detection** — removes blobs for files deleted in SharePoint
-- **Permission sync** — exports SharePoint ACLs as blob metadata (`user_ids`, `group_ids`)
-- **Full sync fallback** — set `FORCE_FULL_SYNC=true` to bypass delta
-- **Dry run mode** — preview changes without modifications
+- **Delta (incremental) sync**: only downloads files changed since the last run
+- **Delta token persistence**: stores the Graph delta token in blob storage
+- **Delete detection**: removes blobs for files deleted in SharePoint
+- **Permission sync**: exports SharePoint ACLs as blob metadata (`user_ids`, `group_ids`)
+- **Full sync fallback**: set `FORCE_FULL_SYNC=true` to bypass delta
+- **Dry run mode**: preview changes without modifications
 
 ## How Delta Sync Works
 
@@ -49,11 +49,11 @@ only when **all** of the following conditions are met:
    only for items with explicit sharing changes (not inherited).
 
 3. The app registration holds **`Sites.FullControl.All`** application permission
-   — the docs state: _"In order to process permissions correctly your application
+   the docs state: _"In order to process permissions correctly your application
    will need to request Sites.FullControl.All permissions."_
 
 **Our app uses `Sites.Read.All` (or the scoped `Sites.Selected` with read
-role).** This is intentional — we follow the principle of least privilege and only
+role).** This is intentional: we follow the principle of least privilege and only
 need read access to enumerate files and their permissions. Because we do not (and
 should not) request `Sites.FullControl.All`, the delta-based permission change
 tracking is **not available** to us.
@@ -63,13 +63,13 @@ tracking is **not available** to us.
 On every sync run the job:
 1. Uses the delta API to efficiently detect **file** content changes (adds, edits, deletes).
 2. Lists **all** files in the library and re-fetches their permissions via
-   `GET /drives/{driveId}/items/{itemId}/permissions` — this endpoint only
+   `GET /drives/{driveId}/items/{itemId}/permissions`. This endpoint only
    requires `Files.Read.All` / `Sites.Read.All`.
 3. Writes the permissions as blob metadata (`user_ids`, `group_ids`) so that
    downstream AI Search can apply ACL filters.
 
 This is the **recommended approach** when you want to stay on `Sites.Read.All`:
-- It is simple and correct — no permission change is ever missed.
+- It is simple and correct: no permission change is ever missed.
 - The per-file `/permissions` call is lightweight (small JSON, no file download).
 - For libraries with a few hundred files the overhead is minimal (a few seconds).
 
@@ -87,7 +87,7 @@ This trades a broader permission scope for reduced API calls.
 
 ### References
 
-- [driveItem: delta — Scanning permissions hierarchies](https://learn.microsoft.com/en-us/graph/api/driveitem-delta?view=graph-rest-1.0#scanning-permissions-hierarchies)
+- [driveItem: delta - Scanning permissions hierarchies](https://learn.microsoft.com/en-us/graph/api/driveitem-delta?view=graph-rest-1.0#scanning-permissions-hierarchies)
 - [Best practices for discovering files and detecting changes at scale](https://learn.microsoft.com/en-us/onedrive/developer/rest-api/concepts/scan-guidance)
 - [List driveItem permissions](https://learn.microsoft.com/en-us/graph/api/driveitem-list-permissions?view=graph-rest-1.0)
 
@@ -95,7 +95,7 @@ This trades a broader permission scope for reduced API calls.
 
 | File | Description |
 |------|-------------|
-| `main.py` | Entry point — orchestrates the sync |
+| `main.py` | Entry point, orchestrates the sync |
 | `config.py` | Configuration from environment variables |
 | `sharepoint_client.py` | Microsoft Graph API client |
 | `blob_client.py` | Azure Blob Storage client |
@@ -120,12 +120,12 @@ python main.py
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SHAREPOINT_SITE_URL` | Yes | — | e.g. `https://contoso.sharepoint.com/sites/MySite` |
+| `SHAREPOINT_SITE_URL` | Yes | (required) | e.g. `https://contoso.sharepoint.com/sites/MySite` |
 | `SHAREPOINT_DRIVE_NAME` | No | `Documents` | Document library name |
 | `SHAREPOINT_FOLDER_PATH` | No | `/` | Folder path to sync |
-| `AZURE_STORAGE_ACCOUNT_NAME` | Yes | — | Storage account name |
+| `AZURE_STORAGE_ACCOUNT_NAME` | Yes | (required) | Storage account name |
 | `AZURE_BLOB_CONTAINER_NAME` | No | `sharepoint-sync` | Container name |
-| `AZURE_BLOB_PREFIX` | No | — | Prefix for all blobs |
+| `AZURE_BLOB_PREFIX` | No | (empty) | Prefix for all blobs |
 | `DELETE_ORPHANED_BLOBS` | No | `false` | Delete blobs removed from SharePoint |
 | `DRY_RUN` | No | `false` | Preview without changes |
 | `SYNC_PERMISSIONS` | No | `false` | Export SharePoint permissions to blob metadata |
@@ -136,7 +136,7 @@ python main.py
 Credentials are resolved per service:
 
 - **SharePoint (Graph API)**: Uses `ClientSecretCredential` when `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` / `AZURE_TENANT_ID` are set (app registration with `Sites.Selected` or `Sites.Read.All`), otherwise `DefaultAzureCredential`.
-- **Blob Storage**: Uses `ManagedIdentityCredential` when running in Azure (Function / ACA — detected via `IDENTITY_ENDPOINT`), `AzureCliCredential` locally, or explicit storage credentials via `AZURE_STORAGE_CLIENT_ID` / `AZURE_STORAGE_CLIENT_SECRET` / `AZURE_STORAGE_TENANT_ID`.
+- **Blob Storage**: Uses `ManagedIdentityCredential` when running in Azure (Function / ACA, detected via `IDENTITY_ENDPOINT`), `AzureCliCredential` locally, or explicit storage credentials via `AZURE_STORAGE_CLIENT_ID` / `AZURE_STORAGE_CLIENT_SECRET` / `AZURE_STORAGE_TENANT_ID`.
 
 This separation ensures the SharePoint app registration credentials (env vars) don't interfere with storage RBAC, which is assigned to the workload's managed identity.
 
@@ -169,7 +169,7 @@ docker run --env-file .env sharepoint-sync:latest
 
 The same `main.py` runs in two schedulers:
 
-- **Azure Function** (timer trigger) — see [deploy/README.md](deploy/README.md)
+- **Azure Function** (timer trigger): see [deploy/README.md](deploy/README.md)
 - **Azure Container Apps Job** (scheduled/manual)
 
 Deploy scripts:
