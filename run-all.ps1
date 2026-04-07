@@ -55,7 +55,7 @@ Write-Host "✓ All required variables present" -ForegroundColor Green
 
 # Get environment variables
 $env:SEARCH_ENDPOINT = "https://$($env:SEARCH_SERVICE_NAME).search.windows.net"
-$apiVersion = if ($env:API_VERSION) { $env:API_VERSION } else { "2025-11-01-preview" }
+$apiVersion = if ($env:API_VERSION) { $env:API_VERSION } else { "2025-11-01" }
 
 # ==============================================================================
 # Step 1: Sync SharePoint to Blob

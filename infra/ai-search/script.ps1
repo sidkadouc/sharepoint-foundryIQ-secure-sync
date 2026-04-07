@@ -43,7 +43,7 @@ param(
     
     # Chat Completion Model (for image verbalization)
     [Parameter(Mandatory = $false)]
-    [string]$ChatCompletionDeploymentId = "gpt-4o",
+    [string]$ChatCompletionDeploymentId = "gpt-5.1",
     
     # OpenAI API Key (use when managed identity is not applicable)
     [Parameter(Mandatory = $false)]
@@ -91,7 +91,7 @@ param(
     [string]$SemanticConfigName = "vector-jt-poc-semantic-configuration",
     
     [Parameter(Mandatory = $false)]
-    [string]$ApiVersion = "2025-11-01-preview",
+    [string]$ApiVersion = "2025-11-01",
     
     [Parameter(Mandatory = $false)]
     [switch]$WhatIf,

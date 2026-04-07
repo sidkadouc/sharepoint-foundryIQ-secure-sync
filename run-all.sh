@@ -68,7 +68,7 @@ echo "  Step 2: Creating AI Search Components"
 echo "============================================================"
 
 SEARCH_ENDPOINT="https://${SEARCH_SERVICE_NAME}.search.windows.net"
-API_VERSION="${API_VERSION:-2025-11-01-preview}"
+API_VERSION="${API_VERSION:-2025-11-01}"
 
 # Helper function to create component
 create_component() {
