@@ -6,10 +6,15 @@
 # 2. Create AI Search components (datasource, index, skillset, indexer)
 # 3. Wait for indexing and run tests
 #
-# Usage: .\run-all.ps1
+# Usage: .\scripts\run-all.ps1  (run from repo root)
 # ==============================================================================
 
 $ErrorActionPreference = "Stop"
+
+# Resolve repo root (one level up from scripts/)
+$repoRoot = Split-Path -Parent $PSScriptRoot
+if (-not $repoRoot) { $repoRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Definition) }
+Push-Location $repoRoot
 
 # Load environment variables from .env file
 function Load-EnvFile {
@@ -65,7 +70,7 @@ Write-Host "============================================================" -Foreg
 Write-Host "  Step 1: Syncing SharePoint to Blob Storage" -ForegroundColor Cyan
 Write-Host "============================================================" -ForegroundColor Cyan
 
-Push-Location src/sync
+Push-Location src\sync
 pip install -q -r requirements.txt
 python main.py 2>&1 | Select-Object -Last 5
 Pop-Location
@@ -177,3 +182,6 @@ Write-Host "Summary:"
 Write-Host "  - SharePoint files synced to: $($env:AZURE_STORAGE_ACCOUNT_NAME)/$($env:AZURE_BLOB_CONTAINER_NAME)"
 Write-Host "  - AI Search index: $($env:INDEX_NAME)"
 Write-Host "  - Documents indexed: $docCount"
+
+# Return to original directory
+Pop-Location

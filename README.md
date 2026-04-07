@@ -75,10 +75,10 @@ Editable source: [docs/diagrams/solution-flows.mmd](docs/diagrams/solution-flows
 
 ```bash
 # Linux/macOS
-./run-all.sh
+./scripts/run-all.sh
 
 # Windows (PowerShell)
-.\run-all.ps1
+.\scripts\run-all.ps1
 ```
 
 This syncs files, deploys search components, waits for indexing, and runs tests.

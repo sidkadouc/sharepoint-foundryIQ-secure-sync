@@ -7,10 +7,15 @@
 # 2. Create AI Search components (datasource, index, skillset, indexer)
 # 3. Wait for indexing and run tests
 #
-# Usage: ./run-all.sh
+# Usage: ./scripts/run-all.sh  (run from repo root)
 # ==============================================================================
 
 set -e
+
+# Resolve repo root (one level up from scripts/)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
 
 # Load environment variables
 if [ -f .env ]; then
@@ -55,7 +60,7 @@ echo "============================================================"
 cd src/sync
 pip install -q -r requirements.txt
 python main.py 2>&1 | tail -5
-cd ../..
+cd "$REPO_ROOT"
 
 echo "✓ SharePoint sync completed"
 
@@ -152,7 +157,7 @@ echo "============================================================"
 
 cd tests
 python test_search.py -q "demo" 2>&1 | grep -E "(Document count|Vector Search|Total results)"
-cd ..
+cd "$REPO_ROOT"
 
 echo ""
 echo "============================================================"
